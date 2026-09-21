@@ -38,9 +38,13 @@ exercise the REST client and the state helpers against a simulated Syncthing ser
 
 1. ~~Scaffold, connection, status and instance-wide variables~~ done
 2. ~~Per-folder and per-device variables, feedbacks and presets, driven by the live configuration~~ done
-3. Per-folder and per-device actions: pause, resume, override, revert
+3. ~~Per-folder and per-device actions: pause, resume, override, revert~~ done
 4. Event stream via `/rest/events` long polling, replacing most of the polling
 5. Polish, real-world testing against several instances, then submission to the Bitfocus module list
+
+Deliberately out of scope: actions that add a folder or add a remote device. Those are setup steps
+that belong in the Syncthing web interface, where the device ID can be checked before confirming.
+They may be reconsidered if users ask for them.
 
 ## References
 

@@ -67,20 +67,37 @@ name, the second one gets a numeric suffix.
 
 ### Actions
 
-| Action              | Effect                                                         |
-| ------------------- | -------------------------------------------------------------- |
-| Rescan all folders  | Looks for local changes in every folder                        |
-| Rescan one folder   | Looks for local changes in a single folder                     |
-| Restart Syncthing   | Restarts the Syncthing process                                 |
-| Shut down Syncthing | Stops the process, which then has to be started on the machine |
-| Clear error list    | Empties the error list shown in the Syncthing GUI              |
-| Refresh status now  | Polls immediately instead of waiting for the next interval     |
+| Action                          | Effect                                                         |
+| ------------------------------- | -------------------------------------------------------------- |
+| Rescan all folders              | Looks for local changes in every folder                        |
+| Rescan one folder               | Looks for local changes in a single folder                     |
+| Folder: pause, resume or toggle | A paused folder is neither scanned nor synchronised            |
+| Folder: override remote changes | Makes the local version win, on send-only folders              |
+| Folder: revert local changes    | Throws local changes away, on receive-only folders             |
+| Device: pause, resume or toggle | A paused device is not connected to                            |
+| All devices: pause or resume    | Applies to every remote device at once                         |
+| Restart Syncthing               | Restarts the Syncthing process                                 |
+| Shut down Syncthing             | Stops the process, which then has to be started on the machine |
+| Clear error list                | Empties the error list shown in the Syncthing GUI              |
+| Refresh status now              | Polls immediately instead of waiting for the next interval     |
+
+Pause, resume and toggle share one action with a mode dropdown, so a single button can toggle a
+folder or device. Toggling needs the current state, so it is skipped with a log entry if the
+module has not seen that folder or device yet.
+
+Override and revert are destructive in opposite directions. Override discards what other devices
+changed, revert discards what you changed locally. Syncthing silently ignores both on folder types
+they do not apply to, so the module checks the type first and writes a log entry instead.
+
+Folder pause goes through the configuration, so Companion needs the folder to exist in Syncthing.
+Device pause uses the dedicated pause and resume endpoints.
 
 ### Feedbacks
 
 | Feedback                       | Active while                                         |
 | ------------------------------ | ---------------------------------------------------- |
 | Connected to Syncthing         | The module can reach the REST API                    |
+| Restart required               | A config change is waiting for a Syncthing restart   |
 | Syncthing reports errors       | The Syncthing error list is not empty                |
 | This machine is up to date     | The local machine holds everything the cluster has   |
 | In sync with all other devices | Every device holds the same data, in both directions |
@@ -97,7 +114,10 @@ name, the second one gets a numeric suffix.
 
 Connection and version: `connected`, `version`, `version_long`, `os`, `arch`
 
-Identity: `my_id`, `my_id_short`, `device_name`
+Identity: `my_id`, `my_id_short`, `device_name`, `gui_url`
+
+`gui_url` holds the address of the Syncthing web interface, for example to open it in a new tab
+from a button.
 
 Runtime: `uptime`, `uptime_seconds`, `bytes_in_total`, `bytes_out_total`
 
@@ -106,7 +126,7 @@ Sync state: `completion`, `in_sync`, `all_in_sync`, `folders_syncing`, `folders_
 
 Counts: `devices_total`, `devices_connected`, `devices_paused`, `folders_total`, `folders_paused`
 
-Errors: `error_count`, `last_error`
+Errors: `error_count`, `last_error`, `restart_required`
 
 Per folder, as `folder_<folder>_<name>`, where `<folder>` is either the folder id or the
 lower-cased label: `id`, `label`, `type`, `state`, `paused`, `completion`, `in_sync`, `need_bytes`,
@@ -116,8 +136,12 @@ Per device, as `device_<device>_<name>`, where `<device>` is either the first bl
 ID or the lower-cased device name: `id`, `id_short`, `name`, `connected`, `paused`, `completion`,
 `in_sync`, `need_bytes`, `need_items`, `address`, `client_version`.
 
+### Deliberately not included
+
+Adding folders and adding remote devices are not offered as actions. Those are setup steps that
+belong in the Syncthing web interface, where you can see what you are doing and confirm the device
+ID. They may be reconsidered if enough users ask for them.
+
 ### Not yet implemented
 
-Pausing and resuming folders and devices, override and revert for send-only and receive-only
-folders, and the event stream for immediate updates instead of polling. All of that is planned for
-later versions.
+The event stream, which would replace most of the polling with immediate updates.

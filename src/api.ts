@@ -32,7 +32,7 @@ export class SyncthingApiError extends Error {
 }
 
 interface RequestConfig {
-	method: 'GET' | 'POST'
+	method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
 	path: string
 	query?: Record<string, string | number | undefined>
 	body?: unknown
@@ -69,6 +69,11 @@ export class SyncthingApi {
 
 	async post<T>(path: string, query?: RequestConfig['query'], body?: unknown): Promise<T> {
 		return this.#request<T>({ method: 'POST', path, query, body })
+	}
+
+	/** Used for configuration changes, where PATCH replaces only the given fields. */
+	async patch<T>(path: string, body: unknown, query?: RequestConfig['query']): Promise<T> {
+		return this.#request<T>({ method: 'PATCH', path, query, body })
 	}
 
 	async #request<T>(config: RequestConfig): Promise<T> {

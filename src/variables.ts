@@ -27,6 +27,8 @@ export interface VariablesSchema extends CompanionVariableValues {
 	my_id: string
 	/** The first segment of the device ID, which is enough to recognise it. */
 	my_id_short: string
+	/** The base URL of the Syncthing web interface this connection talks to. */
+	gui_url: string
 	/** The configured name of this device. */
 	device_name: string
 	/** Seconds since the Syncthing process started. */
@@ -55,6 +57,8 @@ export interface VariablesSchema extends CompanionVariableValues {
 	in_sync: string
 	/** 'true' while this machine and every other device are fully in sync with each other. */
 	all_in_sync: string
+	/** 'true' when a configuration change is waiting for a Syncthing restart. */
+	restart_required: string
 	/** Number of entries in the Syncthing error list. */
 	error_count: number
 	/** The most recent message from the Syncthing error list. */
@@ -73,6 +77,7 @@ const STATIC_DEFINITIONS: CompanionVariableDefinitions<VariablesSchema> = {
 	arch: { name: 'CPU architecture' },
 	my_id: { name: 'Own device ID' },
 	my_id_short: { name: 'Own device ID (short)' },
+	gui_url: { name: 'URL of the Syncthing web interface' },
 	device_name: { name: 'Own device name' },
 	uptime_seconds: { name: 'Uptime in seconds' },
 	uptime: { name: 'Uptime (formatted)' },
@@ -87,6 +92,7 @@ const STATIC_DEFINITIONS: CompanionVariableDefinitions<VariablesSchema> = {
 	completion: { name: 'Overall completion in percent' },
 	in_sync: { name: 'This machine is up to date' },
 	all_in_sync: { name: 'In sync with all other devices' },
+	restart_required: { name: 'Restart required for pending config changes' },
 	error_count: { name: 'Number of pending errors' },
 	last_error: { name: 'Most recent error message' },
 	bytes_in_total: { name: 'Bytes received in total' },

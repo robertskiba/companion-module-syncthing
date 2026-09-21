@@ -143,3 +143,8 @@ export interface DbCompletion {
 	remoteState?: string
 	sequence: number
 }
+
+/** GET /rest/config/restart-required */
+export interface RestartRequired {
+	requiresRestart: boolean
+}

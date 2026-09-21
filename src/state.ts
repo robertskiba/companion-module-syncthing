@@ -66,6 +66,10 @@ export interface DeviceInfo {
 export interface ModuleState {
 	connected: boolean
 	errorCount: number
+	/** True when a configuration change is waiting for a Syncthing restart to take effect. */
+	restartRequired: boolean
+	/** The base URL of the web interface, handy for opening the GUI from a button. */
+	guiUrl: string
 	/** The configured name of the instance this connection talks to. */
 	ownDeviceName: string
 	/** Local completion across all folders, 0 to 100. */
@@ -78,6 +82,8 @@ export function createEmptyState(): ModuleState {
 	return {
 		connected: false,
 		errorCount: 0,
+		restartRequired: false,
+		guiUrl: '',
 		ownDeviceName: '',
 		completion: 0,
 		folders: [],

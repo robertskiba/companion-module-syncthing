@@ -25,7 +25,20 @@ export const DEFAULT_CONFIG: ModuleConfig = {
 	detailInterval: 10,
 }
 
-export function GetConfigFields(): SomeCompanionConfigField[] {
+/** The base URL of the web interface for a given configuration. */
+export function guiUrlFor(config: Pick<ModuleConfig, 'host' | 'port' | 'useHttps'>): string {
+	const host = config.host || DEFAULT_CONFIG.host
+	const port = config.port || DEFAULT_CONFIG.port
+	return `${config.useHttps ? 'https' : 'http'}://${host}:${port}`
+}
+
+export function GetConfigFields(current?: Partial<ModuleConfig>): SomeCompanionConfigField[] {
+	const guiUrl = guiUrlFor({
+		host: current?.host ?? DEFAULT_CONFIG.host,
+		port: current?.port ?? DEFAULT_CONFIG.port,
+		useHttps: current?.useHttps ?? DEFAULT_CONFIG.useHttps,
+	})
+
 	return [
 		{
 			type: 'static-text',
@@ -34,7 +47,9 @@ export function GetConfigFields(): SomeCompanionConfigField[] {
 			width: 12,
 			value:
 				'Connects to the REST API of a Syncthing instance. ' +
-				'The API key is shown in the Syncthing web GUI under Actions > Settings > General.',
+				'The API key is shown in the Syncthing web GUI under Actions > Settings > General. ' +
+				`With the settings saved below, that GUI is at ${guiUrl} . ` +
+				'The same address is available on buttons as the variable gui_url.',
 		},
 		{
 			type: 'textinput',

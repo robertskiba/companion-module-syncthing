@@ -4,7 +4,7 @@ import {
 	type CompanionVariableValues,
 	type SomeCompanionConfigField,
 } from '@companion-module/base'
-import { DEFAULT_CONFIG, GetConfigFields, type ModuleConfig, type ModuleSecrets } from './config.js'
+import { DEFAULT_CONFIG, GetConfigFields, guiUrlFor, type ModuleConfig, type ModuleSecrets } from './config.js'
 import {
 	deviceVariableValues,
 	folderVariableValues,
@@ -32,6 +32,7 @@ import type {
 	ConfigFolder,
 	DbCompletion,
 	DbStatus,
+	RestartRequired,
 	SystemConnections,
 	SystemErrors,
 	SystemStatus,
@@ -95,7 +96,7 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	}
 
 	getConfigFields(): SomeCompanionConfigField[] {
-		return GetConfigFields()
+		return GetConfigFields(this.config)
 	}
 
 	updateActions(): void {
@@ -139,6 +140,8 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		this.#api = undefined
 		this.#lastFailureMessage = undefined
 		this.#lastDetailPoll = 0
+		// Set before the validity checks, so the address is published even when the config is wrong.
+		this.state.guiUrl = guiUrlFor(this.config)
 
 		if (!this.config.host) {
 			this.#setDisconnected()
@@ -320,6 +323,16 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	 */
 	async #pollDetails(api: SyncthingApi): Promise<void> {
 		await Promise.all([
+			(async () => {
+				try {
+					const answer = await api.get<RestartRequired>('/rest/config/restart-required')
+					this.state.restartRequired = answer.requiresRestart === true
+				} catch {
+					// Older versions may not have this endpoint; it is not worth failing the poll over.
+					this.state.restartRequired = false
+				}
+			})(),
+
 			...this.state.folders.map(async (folder) => {
 				if (folder.paused) {
 					// A paused folder reports nothing useful and the call is expensive, so skip it.
@@ -390,6 +403,7 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			arch: version.arch,
 			my_id: myId,
 			my_id_short: myId.split('-')[0] ?? myId,
+			gui_url: this.state.guiUrl,
 			device_name: this.state.ownDeviceName,
 			uptime_seconds: status.uptime,
 			uptime: formatUptime(status.uptime),
@@ -404,6 +418,7 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			completion: String(this.state.completion),
 			in_sync: String(localInSync(this.state)),
 			all_in_sync: String(clusterInSync(this.state, false)),
+			restart_required: String(this.state.restartRequired),
 			error_count: errorList.length,
 			last_error: lastError,
 			bytes_in_total: connections.total.inBytesTotal,
@@ -444,6 +459,8 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			devices_connected: 0,
 			in_sync: 'false',
 			all_in_sync: 'false',
+			// Published even while down, so a button can still open the GUI to investigate.
+			gui_url: this.state.guiUrl,
 		})
 		this.checkAllFeedbacks()
 	}

@@ -132,6 +132,22 @@ export function UpdatePresets(self: ModuleInstance): void {
 			name: 'Restart Syncthing',
 			style: { text: 'Restart\nSyncthing', size: 'auto', color: WHITE, bgcolor: BLACK, show_topbar: false },
 			steps: [{ down: [{ actionId: 'restart', options: {} }], up: [] }],
+			feedbacks: [{ feedbackId: 'restart_required', options: {}, style: { bgcolor: AMBER, color: WHITE } }],
+		},
+
+		control_pause_all: {
+			type: 'simple',
+			name: 'Pause all devices',
+			style: { text: 'Pause\nall', size: 'auto', color: WHITE, bgcolor: BLACK, show_topbar: false },
+			steps: [{ down: [{ actionId: 'devices_pause_all', options: { mode: 'pause' } }], up: [] }],
+			feedbacks: [],
+		},
+
+		control_resume_all: {
+			type: 'simple',
+			name: 'Resume all devices',
+			style: { text: 'Resume\nall', size: 'auto', color: WHITE, bgcolor: BLACK, show_topbar: false },
+			steps: [{ down: [{ actionId: 'devices_pause_all', options: { mode: 'resume' } }], up: [] }],
 			feedbacks: [],
 		},
 	}
@@ -176,6 +192,68 @@ export function UpdatePresets(self: ModuleInstance): void {
 				},
 			],
 		}
+
+		const pauseId = `${id}_pause`
+		folderPresetIds.push(pauseId)
+		presets[pauseId] = {
+			type: 'simple',
+			name: `Folder ${folder.label || folder.id}: pause`,
+			keywords: ['folder', 'pause', folder.id],
+			style: {
+				text: `${folder.label || folder.id}\nPause`,
+				size: 'auto',
+				color: WHITE,
+				bgcolor: BLACK,
+				show_topbar: false,
+			},
+			steps: [{ down: [{ actionId: 'folder_pause', options: { folder: folder.id, mode: 'toggle' } }], up: [] }],
+			feedbacks: [
+				{
+					feedbackId: 'folder_paused',
+					options: { folder: folder.id },
+					style: { bgcolor: AMBER, color: WHITE },
+				},
+			],
+		}
+
+		// Override and revert only do anything on the matching folder type, so only offer them there.
+		if (folder.type === 'sendonly') {
+			const overrideId = `${id}_override`
+			folderPresetIds.push(overrideId)
+			presets[overrideId] = {
+				type: 'simple',
+				name: `Folder ${folder.label || folder.id}: override remote changes`,
+				keywords: ['folder', 'override', folder.id],
+				style: {
+					text: `${folder.label || folder.id}\nOverride`,
+					size: 'auto',
+					color: WHITE,
+					bgcolor: BLACK,
+					show_topbar: false,
+				},
+				steps: [{ down: [{ actionId: 'folder_override', options: { folder: folder.id } }], up: [] }],
+				feedbacks: [],
+			}
+		}
+
+		if (folder.type === 'receiveonly') {
+			const revertId = `${id}_revert`
+			folderPresetIds.push(revertId)
+			presets[revertId] = {
+				type: 'simple',
+				name: `Folder ${folder.label || folder.id}: revert local changes`,
+				keywords: ['folder', 'revert', folder.id],
+				style: {
+					text: `${folder.label || folder.id}\nRevert`,
+					size: 'auto',
+					color: WHITE,
+					bgcolor: BLACK,
+					show_topbar: false,
+				},
+				steps: [{ down: [{ actionId: 'folder_revert', options: { folder: folder.id } }], up: [] }],
+				feedbacks: [],
+			}
+		}
 	}
 
 	// One button per remote device.
@@ -201,6 +279,29 @@ export function UpdatePresets(self: ModuleInstance): void {
 					options: { device: device.id },
 					style: { bgcolor: GREEN, color: WHITE },
 				},
+				{
+					feedbackId: 'device_paused',
+					options: { device: device.id },
+					style: { bgcolor: AMBER, color: WHITE },
+				},
+			],
+		}
+
+		const pauseId = `${id}_pause`
+		devicePresetIds.push(pauseId)
+		presets[pauseId] = {
+			type: 'simple',
+			name: `Device ${device.name}: pause`,
+			keywords: ['device', 'pause', device.name],
+			style: {
+				text: `${device.name}\nPause`,
+				size: 'auto',
+				color: WHITE,
+				bgcolor: BLACK,
+				show_topbar: false,
+			},
+			steps: [{ down: [{ actionId: 'device_pause', options: { device: device.id, mode: 'toggle' } }], up: [] }],
+			feedbacks: [
 				{
 					feedbackId: 'device_paused',
 					options: { device: device.id },
@@ -248,7 +349,14 @@ export function UpdatePresets(self: ModuleInstance): void {
 		id: 'control',
 		name: 'Control',
 		description: 'Buttons triggering actions on the Syncthing instance',
-		definitions: ['control_rescan', 'control_clear_errors', 'control_refresh', 'control_restart'],
+		definitions: [
+			'control_rescan',
+			'control_clear_errors',
+			'control_refresh',
+			'control_pause_all',
+			'control_resume_all',
+			'control_restart',
+		],
 	})
 
 	self.setPresetDefinitions(structure, presets)

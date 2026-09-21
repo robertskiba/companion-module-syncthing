@@ -7,6 +7,7 @@ type NoOptions = Record<string, never>
 export type FeedbacksSchema = {
 	connected: { type: 'boolean'; options: NoOptions }
 	has_errors: { type: 'boolean'; options: NoOptions }
+	restart_required: { type: 'boolean'; options: NoOptions }
 	in_sync: { type: 'boolean'; options: NoOptions }
 	all_in_sync: { type: 'boolean'; options: { ignoreDisconnected: boolean } }
 	any_folder_syncing: { type: 'boolean'; options: NoOptions }
@@ -91,6 +92,15 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 			defaultStyle: { bgcolor: RED, color: WHITE },
 			options: [],
 			callback: () => self.state.errorCount > 0,
+		},
+
+		restart_required: {
+			name: 'Restart required',
+			description: 'Active while a configuration change is waiting for a Syncthing restart',
+			type: 'boolean',
+			defaultStyle: { bgcolor: AMBER, color: WHITE },
+			options: [],
+			callback: () => self.state.restartRequired,
 		},
 
 		in_sync: {

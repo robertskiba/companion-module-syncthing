@@ -17,6 +17,15 @@ been tested against real Syncthing instances.
 
 Nothing yet.
 
+### Confirmed against real instances
+
+Setting up a connection was tested on 2026-09-21 against Syncthing on Windows and a second
+instance in a virtual machine, over both HTTP and HTTPS, on the standard port and on a changed
+one. Reading the API key automatically, finding instances on the network, resolving their machine
+names and connecting all behaved as intended. What has not been exercised in the wild yet is the
+control side: pausing, resuming, override and revert, and the event stream under real transfer
+activity.
+
 ## [0.1.9] - 2026-09-21
 
 ### Fixed
@@ -273,8 +282,8 @@ First pre-release. Built on the Bitfocus TypeScript module template with
 
 ### Known limits
 
-- The automatic API key lookup and the event stream have been checked against simulated servers
-  only, not yet against a real Syncthing instance.
+- The automatic API key lookup and the event stream were checked against simulated servers only
+  when this version was written. Both have since been confirmed against real instances; see 0.1.9.
 - The API key lookup relies on behaviour that is not part of the documented REST API, so a future
   Syncthing release could change it.
 - Syncthing buffers a limited number of events. A long disconnection during heavy activity can

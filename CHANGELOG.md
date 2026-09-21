@@ -15,6 +15,10 @@ been tested against real Syncthing instances.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.1] - 2026-09-21
+
 ### Added
 
 - Finds Syncthing instances on the network by listening for the announcements they broadcast on

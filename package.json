@@ -1,6 +1,6 @@
 {
 	"name": "syncthing",
-	"version": "0.1.0-alpha",
+	"version": "0.1.1",
 	"main": "dist/main.js",
 	"type": "module",
 	"scripts": {

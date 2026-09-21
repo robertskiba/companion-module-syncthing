@@ -18,7 +18,7 @@ import { clusterInSync, localInSync, UpdateFeedbacks, type FeedbacksSchema } fro
 import { UpdatePresets } from './presets.js'
 import { SyncthingApi, SyncthingApiError } from './api.js'
 import {
-	assignUniquePrefixes,
+	assignPrefixPairs,
 	createEmptyState,
 	folderCompletion,
 	FOLDER_STATES,
@@ -245,14 +245,22 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		const remotes = configDevices.filter((device) => device.deviceID !== myId)
 		this.state.ownDeviceName = configDevices.find((device) => device.deviceID === myId)?.name ?? ''
 
-		const devicePrefixes = assignUniquePrefixes(remotes.map((device) => device.name || device.deviceID))
+		// Devices get a stable name from the first block of their device ID, plus a readable
+		// alias from their configured name.
+		const devicePrefixes = assignPrefixPairs(
+			remotes.map((device) => ({
+				stable: device.deviceID.split('-')[0] ?? device.deviceID,
+				readable: device.name,
+			})),
+		)
 		const devices: DeviceInfo[] = remotes.map((device, index) => {
 			const previous = this.state.devices.find((entry) => entry.id === device.deviceID)
 			const connection = connections.connections[device.deviceID]
 			return {
 				id: device.deviceID,
 				name: device.name || device.deviceID,
-				varPrefix: devicePrefixes[index] ?? device.deviceID,
+				varPrefix: devicePrefixes[index]?.varPrefix ?? device.deviceID,
+				namePrefix: devicePrefixes[index]?.namePrefix ?? '',
 				paused: device.paused,
 				connected: connection?.connected ?? false,
 				address: connection?.address ?? '',
@@ -263,13 +271,17 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			}
 		})
 
-		const folderPrefixes = assignUniquePrefixes(configFolders.map((folder) => folder.id))
+		// Folders get a stable name from their id, plus a readable alias from their label.
+		const folderPrefixes = assignPrefixPairs(
+			configFolders.map((folder) => ({ stable: folder.id, readable: folder.label })),
+		)
 		const folders: FolderInfo[] = configFolders.map((folder, index) => {
 			const previous = this.state.folders.find((entry) => entry.id === folder.id)
 			return {
 				id: folder.id,
 				label: folder.label,
-				varPrefix: folderPrefixes[index] ?? folder.id,
+				varPrefix: folderPrefixes[index]?.varPrefix ?? folder.id,
+				namePrefix: folderPrefixes[index]?.namePrefix ?? '',
 				type: folder.type,
 				paused: folder.paused,
 				state: folder.paused ? 'paused' : (previous?.state ?? 'unknown'),
@@ -289,8 +301,8 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 
 		// Variable definitions and dropdown choices only change when the lists themselves change.
 		const fingerprint = JSON.stringify([
-			folders.map((folder) => [folder.id, folder.varPrefix, folder.label]),
-			devices.map((device) => [device.id, device.varPrefix, device.name]),
+			folders.map((folder) => [folder.id, folder.varPrefix, folder.namePrefix, folder.label]),
+			devices.map((device) => [device.id, device.varPrefix, device.namePrefix, device.name]),
 		])
 		if (fingerprint !== this.#listFingerprint) {
 			this.#listFingerprint = fingerprint

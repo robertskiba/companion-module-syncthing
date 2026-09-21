@@ -15,7 +15,8 @@ Build once with `yarn build`. That is enough for Companion to load the module.
 
 While developing, `yarn dev` runs the compiler in watch mode and recompiles on change.
 
-Check types and style with `yarn build` and `yarn lint`. Build a distributable package with
+Check types and style with `yarn build` and `yarn lint`. Run `yarn test` after a build to
+exercise the REST client and the state helpers against a simulated Syncthing server. Build a distributable package with
 `yarn package`.
 
 ## Project layout
@@ -31,6 +32,7 @@ Check types and style with `yarn build` and `yarn lint`. Build a distributable p
 | `src/feedbacks.ts` | Feedbacks                                                         |
 | `src/variables.ts` | Variable definitions and the uptime formatter                     |
 | `src/presets.ts`   | Ready-made buttons                                                |
+| `tests/`           | Dependency-free checks, run with `yarn test` after `yarn build`   |
 
 ## Roadmap
 

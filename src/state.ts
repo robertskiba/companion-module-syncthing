@@ -19,8 +19,13 @@ export type FolderState = (typeof FOLDER_STATES)[number]
 export interface FolderInfo {
 	id: string
 	label: string
-	/** The variable name segment derived from the folder id, unique within this connection. */
+	/** The stable variable name segment, derived from the folder id. */
 	varPrefix: string
+	/**
+	 * The readable variable name segment, derived from the lower-cased folder label.
+	 * Empty when the label would produce the same segment as the id, or when there is no label.
+	 */
+	namePrefix: string
 	type: string
 	paused: boolean
 	state: FolderState
@@ -40,8 +45,13 @@ export interface FolderInfo {
 export interface DeviceInfo {
 	id: string
 	name: string
-	/** The variable name segment derived from the device name, unique within this connection. */
+	/** The stable variable name segment, derived from the first block of the device ID. */
 	varPrefix: string
+	/**
+	 * The readable variable name segment, derived from the lower-cased device name.
+	 * Empty when the name would produce the same segment as the device ID block.
+	 */
+	namePrefix: string
 	paused: boolean
 	connected: boolean
 	address: string
@@ -111,6 +121,45 @@ export function assignUniquePrefixes(names: string[]): string[] {
 		}
 		used.add(candidate)
 		return candidate
+	})
+}
+
+/**
+ * Gives every entry two variable name segments: a stable one derived from an identifier, and a
+ * readable one derived from a user-chosen name, lower-cased.
+ *
+ * The readable segment is left empty when it would duplicate the stable one, so a folder whose
+ * label already matches its id does not get two identical sets of variables. All segments within
+ * one call are unique, so two entries can never write to the same variable.
+ */
+export function assignPrefixPairs(
+	entries: { stable: string; readable: string }[],
+): { varPrefix: string; namePrefix: string }[] {
+	const used = new Set<string>()
+
+	const take = (base: string): string => {
+		let candidate = base
+		let counter = 2
+		while (used.has(candidate)) {
+			candidate = `${base}_${counter}`
+			counter++
+		}
+		used.add(candidate)
+		return candidate
+	}
+
+	// Stable segments are claimed first, so a renamed entry can never steal an id-based name.
+	const varPrefixes = entries.map((entry) => take(sanitizeVarSegment(entry.stable)))
+
+	return entries.map((entry, index) => {
+		const varPrefix = varPrefixes[index] ?? sanitizeVarSegment(entry.stable)
+		const readable = entry.readable.trim()
+		if (readable.length === 0) return { varPrefix, namePrefix: '' }
+
+		const base = sanitizeVarSegment(readable).toLowerCase()
+		if (base === varPrefix.toLowerCase()) return { varPrefix, namePrefix: '' }
+
+		return { varPrefix, namePrefix: take(base) }
 	})
 }
 

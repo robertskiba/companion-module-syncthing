@@ -1,4 +1,8 @@
-import type { CompanionVariableDefinitions, CompanionVariableValues } from '@companion-module/base'
+import type {
+	CompanionVariableDefinitions,
+	CompanionVariableValue,
+	CompanionVariableValues,
+} from '@companion-module/base'
 import type ModuleInstance from './main.js'
 import type { DeviceInfo, FolderInfo } from './state.js'
 
@@ -89,14 +93,24 @@ const STATIC_DEFINITIONS: CompanionVariableDefinitions<VariablesSchema> = {
 	bytes_out_total: { name: 'Bytes sent in total' },
 }
 
-/** Builds the variable id for one property of one folder. */
+/** Builds the stable variable id for one property of one folder, based on the folder id. */
 export function folderVar(folder: FolderInfo, suffix: string): string {
 	return `folder_${folder.varPrefix}_${suffix}`
 }
 
-/** Builds the variable id for one property of one device. */
+/** Builds the readable variable id for one folder property, or undefined when there is no alias. */
+export function folderNameVar(folder: FolderInfo, suffix: string): string | undefined {
+	return folder.namePrefix ? `folder_${folder.namePrefix}_${suffix}` : undefined
+}
+
+/** Builds the stable variable id for one property of one device, based on the device ID. */
 export function deviceVar(device: DeviceInfo, suffix: string): string {
 	return `device_${device.varPrefix}_${suffix}`
+}
+
+/** Builds the readable variable id for one device property, or undefined when there is no alias. */
+export function deviceNameVar(device: DeviceInfo, suffix: string): string | undefined {
+	return device.namePrefix ? `device_${device.namePrefix}_${suffix}` : undefined
 }
 
 const FOLDER_SUFFIXES: { suffix: string; name: string }[] = [
@@ -140,54 +154,80 @@ export function UpdateVariableDefinitions(self: ModuleInstance): void {
 	for (const folder of self.state.folders) {
 		const title = folder.label || folder.id
 		for (const { suffix, name } of FOLDER_SUFFIXES) {
-			definitions[folderVar(folder, suffix)] = { name: `Folder ${title}: ${name}` }
+			definitions[folderVar(folder, suffix)] = { name: `Folder ${title}: ${name} (by id)` }
+			const alias = folderNameVar(folder, suffix)
+			if (alias) definitions[alias] = { name: `Folder ${title}: ${name} (by label)` }
 		}
 	}
 
 	for (const device of self.state.devices) {
 		for (const { suffix, name } of DEVICE_SUFFIXES) {
-			definitions[deviceVar(device, suffix)] = { name: `Device ${device.name}: ${name}` }
+			definitions[deviceVar(device, suffix)] = { name: `Device ${device.name}: ${name} (by ID)` }
+			const alias = deviceNameVar(device, suffix)
+			if (alias) definitions[alias] = { name: `Device ${device.name}: ${name} (by name)` }
 		}
 	}
 
 	self.setVariableDefinitions(definitions)
 }
 
-/** The values for one folder, keyed by variable id. */
-export function folderVariableValues(folder: FolderInfo): CompanionVariableValues {
-	return {
-		[folderVar(folder, 'id')]: folder.id,
-		[folderVar(folder, 'label')]: folder.label || folder.id,
-		[folderVar(folder, 'type')]: folder.type,
-		[folderVar(folder, 'state')]: folder.state,
-		[folderVar(folder, 'paused')]: String(folder.paused),
-		[folderVar(folder, 'completion')]: folder.completion,
-		[folderVar(folder, 'in_sync')]: String(folder.needBytes === 0 && folder.needItems === 0),
-		[folderVar(folder, 'need_bytes')]: folder.needBytes,
-		[folderVar(folder, 'need_items')]: folder.needItems,
-		[folderVar(folder, 'global_bytes')]: folder.globalBytes,
-		[folderVar(folder, 'local_bytes')]: folder.localBytes,
-		[folderVar(folder, 'errors')]: folder.pullErrors,
-		[folderVar(folder, 'pull_errors')]: folder.pullErrors,
-		[folderVar(folder, 'local_changes')]: folder.receiveOnlyChangedFiles,
+/** Writes every value under the stable prefix and, when there is one, under the readable alias. */
+function underBothPrefixes(
+	values: Record<string, CompanionVariableValue>,
+	stablePrefix: string,
+	namePrefix: string,
+): CompanionVariableValues {
+	const result: CompanionVariableValues = {}
+	for (const [suffix, value] of Object.entries(values)) {
+		result[`${stablePrefix}_${suffix}`] = value
+		if (namePrefix) result[`${namePrefix}_${suffix}`] = value
 	}
+	return result
 }
 
-/** The values for one device, keyed by variable id. */
+/** The values for one folder, keyed by variable id, under both naming variants. */
+export function folderVariableValues(folder: FolderInfo): CompanionVariableValues {
+	return underBothPrefixes(
+		{
+			id: folder.id,
+			label: folder.label || folder.id,
+			type: folder.type,
+			state: folder.state,
+			paused: String(folder.paused),
+			completion: folder.completion,
+			in_sync: String(folder.needBytes === 0 && folder.needItems === 0),
+			need_bytes: folder.needBytes,
+			need_items: folder.needItems,
+			global_bytes: folder.globalBytes,
+			local_bytes: folder.localBytes,
+			errors: folder.pullErrors,
+			pull_errors: folder.pullErrors,
+			local_changes: folder.receiveOnlyChangedFiles,
+		},
+		`folder_${folder.varPrefix}`,
+		folder.namePrefix ? `folder_${folder.namePrefix}` : '',
+	)
+}
+
+/** The values for one device, keyed by variable id, under both naming variants. */
 export function deviceVariableValues(device: DeviceInfo): CompanionVariableValues {
-	return {
-		[deviceVar(device, 'id')]: device.id,
-		[deviceVar(device, 'id_short')]: device.id.split('-')[0] ?? device.id,
-		[deviceVar(device, 'name')]: device.name,
-		[deviceVar(device, 'connected')]: String(device.connected),
-		[deviceVar(device, 'paused')]: String(device.paused),
-		[deviceVar(device, 'completion')]: device.completion,
-		[deviceVar(device, 'in_sync')]: String(device.completion >= 100),
-		[deviceVar(device, 'need_bytes')]: device.needBytes,
-		[deviceVar(device, 'need_items')]: device.needItems,
-		[deviceVar(device, 'address')]: device.address,
-		[deviceVar(device, 'client_version')]: device.clientVersion,
-	}
+	return underBothPrefixes(
+		{
+			id: device.id,
+			id_short: device.id.split('-')[0] ?? device.id,
+			name: device.name,
+			connected: String(device.connected),
+			paused: String(device.paused),
+			completion: device.completion,
+			in_sync: String(device.completion >= 100),
+			need_bytes: device.needBytes,
+			need_items: device.needItems,
+			address: device.address,
+			client_version: device.clientVersion,
+		},
+		`device_${device.varPrefix}`,
+		device.namePrefix ? `device_${device.namePrefix}` : '',
+	)
 }
 
 /** Renders a number of seconds as "3d 04:15:22", dropping the day part when it is zero. */

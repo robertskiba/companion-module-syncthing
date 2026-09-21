@@ -45,9 +45,25 @@ The folder and device lists are read from the running instance on every poll. Ad
 remove a folder in Syncthing and the dropdowns, variables and presets follow within one interval,
 without reloading the connection.
 
-Folder variables are named after the folder id, device variables after the device name. Characters
-that are not allowed in a variable name become underscores, so a device called `Backup PC` gives
-`$(syncthing:device_Backup_PC_completion)`. Renaming a device therefore renames its variables.
+### Two ways to name the same variable
+
+Every folder and device variable exists twice, so you can pick between a stable name and a
+readable one.
+
+**By identifier.** Folders use their folder id, devices the first block of their device ID. These
+never change, even when you rename things, which is what you want for an installation that has to
+keep working untouched. The drawback is that a Syncthing folder id is often generated and cryptic,
+so you get something like `$(syncthing:folder_kj3h4_a9s8d_completion)`.
+
+**By name.** Folders use their label, devices their device name, lower-cased. That reads far
+better, for example `$(syncthing:folder_show_content_completion)` or
+`$(syncthing:device_backup_pc_completion)`. The catch is that renaming a folder or device renames
+its variables, and buttons referring to the old name stop resolving. Use this variant while
+building, and the identifier variant where a rename must not break anything.
+
+Characters that a variable name cannot contain become underscores. A folder with no label, or one
+whose label matches its id, only gets the identifier variant. If two labels collapse to the same
+name, the second one gets a numeric suffix.
 
 ### Actions
 
@@ -92,13 +108,13 @@ Counts: `devices_total`, `devices_connected`, `devices_paused`, `folders_total`,
 
 Errors: `error_count`, `last_error`
 
-Per folder, where `<folder>` is the folder id: `id`, `label`, `type`, `state`, `paused`,
-`completion`, `in_sync`, `need_bytes`, `need_items`, `global_bytes`, `local_bytes`, `errors`,
-`pull_errors`, `local_changes`, each as `folder_<folder>_<name>`.
+Per folder, as `folder_<folder>_<name>`, where `<folder>` is either the folder id or the
+lower-cased label: `id`, `label`, `type`, `state`, `paused`, `completion`, `in_sync`, `need_bytes`,
+`need_items`, `global_bytes`, `local_bytes`, `errors`, `pull_errors`, `local_changes`.
 
-Per device, where `<device>` is the device name: `id`, `id_short`, `name`, `connected`, `paused`,
-`completion`, `in_sync`, `need_bytes`, `need_items`, `address`, `client_version`, each as
-`device_<device>_<name>`.
+Per device, as `device_<device>_<name>`, where `<device>` is either the first block of the device
+ID or the lower-cased device name: `id`, `id_short`, `name`, `connected`, `paused`, `completion`,
+`in_sync`, `need_bytes`, `need_items`, `address`, `client_version`.
 
 ### Not yet implemented
 

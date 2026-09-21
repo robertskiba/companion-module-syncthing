@@ -15,7 +15,25 @@ been tested against real Syncthing instances.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Finds Syncthing instances on the network by listening for the announcements they broadcast on
+  UDP port 21027, on every IPv4 interface of the Companion machine. Nothing is sent out.
+- Because an announcement says which device is there but not where its web interface is, each
+  newly heard instance is checked on the configured port, and only instances that answer are
+  offered. Syncthing binds its web interface to localhost until that is changed, so an unreachable
+  instance would otherwise be offered and then fail.
+- The host field became a list of what was found, showing the address, the resolved name where the
+  network provides one, and the short device ID. Any other address can still be typed in, and
+  127.0.0.1 is always offered for the common case of Syncthing running on the Companion machine.
+- Found instances are written to the connection log as they appear.
+
+### Known limits
+
+- Only IPv4 broadcasts are listened for. Syncthing also announces itself by IPv6 multicast, which
+  Companion's shared socket cannot join; a dual-stack instance is found through IPv4 anyway.
+- Only the first block of the device ID is shown. The full ID adds check characters whose exact
+  derivation is not documented, and a wrong ID that looks right would be worse than a short one.
 
 ## [0.1.0-alpha] - 2026-09-21
 
@@ -98,6 +116,3 @@ First pre-release. Built on the Bitfocus TypeScript module template with
   Syncthing release could change it.
 - Syncthing buffers a limited number of events. A long disconnection during heavy activity can
   drop some; the periodic poll covers that case.
-- Discovering Syncthing hosts on the local network is not implemented. Syncthing uses its own UDP
-  protocol rather than Bonjour, and its web interface listens on localhost by default, so
-  discovered hosts would often not be reachable anyway.

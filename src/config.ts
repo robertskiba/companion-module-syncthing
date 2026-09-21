@@ -1,4 +1,5 @@
-import { Regex, type SomeCompanionConfigField } from '@companion-module/base'
+import { Regex, type DropdownChoice, type SomeCompanionConfigField } from '@companion-module/base'
+import type { LanHost } from './lanscan.js'
 
 export type ModuleConfig = {
 	host: string
@@ -10,6 +11,7 @@ export type ModuleConfig = {
 	detailInterval: number
 	autoApiKey: boolean
 	useEvents: boolean
+	lanScan: boolean
 }
 
 /** Values stored separately from the config so they are not echoed back to the web UI. */
@@ -27,6 +29,7 @@ export const DEFAULT_CONFIG: ModuleConfig = {
 	detailInterval: 10,
 	autoApiKey: true,
 	useEvents: true,
+	lanScan: true,
 }
 
 /** The base URL of the web interface for a given configuration. */
@@ -36,7 +39,52 @@ export function guiUrlFor(config: Pick<ModuleConfig, 'host' | 'port' | 'useHttps
 	return `${config.useHttps ? 'https' : 'http'}://${host}:${port}`
 }
 
-export function GetConfigFields(current?: Partial<ModuleConfig>): SomeCompanionConfigField[] {
+/** The label for one found host: address, resolved name where there is one, and device ID. */
+function describeHost(host: LanHost): string {
+	const parts = [host.address]
+	if (host.hostname) parts.push(host.hostname)
+	parts.push(`device ${host.shortId}`)
+	if (host.scheme === 'https') parts.push('HTTPS')
+	return `${parts[0]} - ${parts.slice(1).join(', ')}`
+}
+
+/**
+ * The entries offered for the host field: whatever was found on the network, plus the address
+ * already configured, so the current value never disappears from the list.
+ */
+function hostChoices(current: string | undefined, detected: LanHost[]): DropdownChoice[] {
+	const choices: DropdownChoice[] = detected.map((host) => ({
+		id: host.address,
+		label: describeHost(host),
+	}))
+
+	// On Windows and macOS the instance usually runs on the same machine as Companion. That one
+	// announces itself under its network address, where its web interface is often not bound, so
+	// it would be missing from the list. Offering localhost outright avoids that trap.
+	if (!choices.some((choice) => choice.id === DEFAULT_CONFIG.host)) {
+		choices.unshift({ id: DEFAULT_CONFIG.host, label: `${DEFAULT_CONFIG.host} (this machine)` })
+	}
+
+	if (current && !choices.some((choice) => choice.id === current)) {
+		choices.unshift({ id: current, label: current })
+	}
+	return choices
+}
+
+/** A sentence about what network discovery has turned up so far. */
+function describeDetected(detected: LanHost[]): string {
+	if (detected.length === 0) {
+		return (
+			'No instances found on the network yet. Syncthing announces itself every 30 to 60 ' +
+			'seconds, so reopen this page in a minute. Instances whose web interface is bound to ' +
+			'localhost only never appear, because they cannot be reached from here.'
+		)
+	}
+	const list = detected.map((host) => (host.hostname ? `${host.address} (${host.hostname})` : host.address))
+	return `Found on the network: ${list.join(', ')}.`
+}
+
+export function GetConfigFields(current?: Partial<ModuleConfig>, detected: LanHost[] = []): SomeCompanionConfigField[] {
 	const guiUrl = guiUrlFor({
 		host: current?.host ?? DEFAULT_CONFIG.host,
 		port: current?.port ?? DEFAULT_CONFIG.port,
@@ -53,15 +101,18 @@ export function GetConfigFields(current?: Partial<ModuleConfig>): SomeCompanionC
 				'Connects to the REST API of a Syncthing instance. ' +
 				'The API key is shown in the Syncthing web GUI under Actions > Settings > General. ' +
 				`With the settings saved below, that GUI is at ${guiUrl} . ` +
-				'The same address is available on buttons as the variable gui_url.',
+				'The same address is available on buttons as the variable gui_url. ' +
+				`${describeDetected(detected)}`,
 		},
 		{
-			type: 'textinput',
+			type: 'dropdown',
 			id: 'host',
 			label: 'Host',
-			tooltip: 'IP address or hostname of the machine running Syncthing',
+			tooltip: 'Instances found on the network are offered here. ' + 'Any other address can be typed in instead.',
 			width: 6,
-			default: DEFAULT_CONFIG.host,
+			default: current?.host ?? DEFAULT_CONFIG.host,
+			choices: hostChoices(current?.host, detected),
+			allowCustom: true,
 			regex: Regex.HOSTNAME,
 		},
 		{
@@ -116,6 +167,16 @@ export function GetConfigFields(current?: Partial<ModuleConfig>): SomeCompanionC
 			tooltip: 'Syncthing generates its own certificate, which is not signed by a public authority',
 			width: 6,
 			default: DEFAULT_CONFIG.ignoreCertErrors,
+		},
+		{
+			type: 'checkbox',
+			id: 'lanScan',
+			label: 'Look for Syncthing instances on the network',
+			tooltip:
+				'Listens for the announcements Syncthing broadcasts, then checks whether each ' +
+				'instance answers on the port above. Only reachable ones are offered.',
+			width: 12,
+			default: DEFAULT_CONFIG.lanScan,
 		},
 		{
 			type: 'checkbox',

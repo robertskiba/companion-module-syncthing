@@ -1,0 +1,397 @@
+import { reverse as dnsReverse } from 'node:dns/promises'
+import { request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
+import type { LogLevel, SharedUdpSocket } from '@companion-module/base'
+
+/**
+ * Finds Syncthing instances on the local network.
+ *
+ * Syncthing announces itself by broadcasting on UDP port 21027, so listening there reveals every
+ * instance in the same broadcast domain without sending anything. The announcement carries the
+ * device ID and the addresses used for syncing, but not the address of the web interface, so each
+ * newly heard host is then probed on the configured web interface port. Only hosts that answer
+ * there are reported, because only those can actually be used as a connection.
+ *
+ * See https://docs.syncthing.net/specs/localdisco-v4.html
+ */
+
+/** UDP port Syncthing broadcasts its announcements on. */
+export const DISCOVERY_PORT = 21027
+
+/** First four bytes of every announcement, in network byte order. */
+export const DISCOVERY_MAGIC = 0x2ea7d90b
+
+/** Hosts are forgotten when they have not announced themselves for this long. */
+const FORGET_AFTER_MS = 10 * 60 * 1000
+
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+
+/** One instance heard on the network and confirmed to have a reachable web interface. */
+export interface LanHost {
+	/** The address the announcement came from. */
+	address: string
+	/** The first block of the device ID, as Syncthing shows it in its own interface. */
+	shortId: string
+	/** The name the address resolves to, when the network can tell us one. */
+	hostname: string | undefined
+	/** Which scheme the web interface answered on. */
+	scheme: 'http' | 'https'
+	/** The sync addresses from the announcement, kept for display. */
+	syncAddresses: string[]
+	/** When the host last announced itself. */
+	lastSeen: number
+}
+
+/** The contents of one announcement packet. */
+export interface Announcement {
+	/** The raw 32 byte device ID. */
+	id: Buffer
+	/** The sync addresses the instance listens on, which are not the web interface. */
+	addresses: string[]
+	instanceId: number
+}
+
+interface Varint {
+	value: number
+	next: number
+}
+
+function readVarint(buffer: Buffer, offset: number): Varint | undefined {
+	let value = 0
+	let shift = 0
+	let position = offset
+
+	while (position < buffer.length) {
+		const byte = buffer[position]
+		if (byte === undefined) return undefined
+		position++
+
+		// Multiplication rather than shifting, because a protobuf varint can exceed 32 bits.
+		value += (byte & 0x7f) * Math.pow(2, shift)
+		if ((byte & 0x80) === 0) return { value, next: position }
+
+		shift += 7
+		if (shift > 63) return undefined
+	}
+	return undefined
+}
+
+/**
+ * Parses an announcement packet, or returns undefined when it is not one.
+ * Only the fields this module uses are read; anything else is skipped.
+ */
+export function parseAnnouncement(packet: Buffer): Announcement | undefined {
+	if (packet.length < 4 || packet.readUInt32BE(0) !== DISCOVERY_MAGIC) return undefined
+
+	let id: Buffer | undefined
+	const addresses: string[] = []
+	let instanceId = 0
+	let offset = 4
+
+	while (offset < packet.length) {
+		const key = readVarint(packet, offset)
+		if (!key) return undefined
+		offset = key.next
+
+		const field = Math.floor(key.value / 8)
+		const wireType = key.value % 8
+
+		if (wireType === 2) {
+			const length = readVarint(packet, offset)
+			if (!length) return undefined
+			const start = length.next
+			const end = start + length.value
+			if (end > packet.length) return undefined
+
+			if (field === 1) id = packet.subarray(start, end)
+			else if (field === 2) addresses.push(packet.subarray(start, end).toString('utf8'))
+			offset = end
+		} else if (wireType === 0) {
+			const number = readVarint(packet, offset)
+			if (!number) return undefined
+			if (field === 3) instanceId = number.value
+			offset = number.next
+		} else if (wireType === 5) {
+			offset += 4
+		} else if (wireType === 1) {
+			offset += 8
+		} else {
+			// Groups and anything unknown cannot be skipped safely.
+			return undefined
+		}
+	}
+
+	if (!id || id.length === 0) return undefined
+	return { id, addresses, instanceId }
+}
+
+/** Encodes bytes as base32 using the alphabet Syncthing uses for device IDs. */
+export function base32Encode(bytes: Buffer): string {
+	let output = ''
+	let buffer = 0
+	let bits = 0
+
+	for (const byte of bytes) {
+		buffer = buffer * 256 + byte
+		bits += 8
+		while (bits >= 5) {
+			bits -= 5
+			const index = Math.floor(buffer / Math.pow(2, bits)) % 32
+			output += BASE32_ALPHABET[index]
+		}
+		buffer %= Math.pow(2, bits)
+	}
+
+	if (bits > 0) {
+		const index = (buffer * Math.pow(2, 5 - bits)) % 32
+		output += BASE32_ALPHABET[index]
+	}
+	return output
+}
+
+/**
+ * The short form of a device ID: the first block Syncthing shows.
+ *
+ * Only the first block is derived here. The full device ID inserts check characters, and getting
+ * those subtly wrong would show an ID that looks right but is not, so it is left out.
+ */
+export function shortDeviceId(id: Buffer): string {
+	return base32Encode(id).slice(0, 7)
+}
+
+/**
+ * Builds a probe that checks whether a host serves a Syncthing web interface on the given port.
+ *
+ * The health endpoint is used because it is the one part of the REST API that needs no key, so a
+ * host can be checked before anything is configured. Any HTTP answer counts as reachable: the
+ * announcement already proved that Syncthing runs there, so the only question is whether its web
+ * interface is bound to something other than localhost.
+ */
+export function createHttpProbe(
+	port: number,
+	ignoreCertErrors: boolean,
+	timeout = 2000,
+): (address: string) => Promise<'http' | 'https' | undefined> {
+	return async (address: string) => {
+		for (const scheme of ['http', 'https'] as const) {
+			if (await reaches(scheme, address, port, ignoreCertErrors, timeout)) return scheme
+		}
+		return undefined
+	}
+}
+
+async function reaches(
+	scheme: 'http' | 'https',
+	address: string,
+	port: number,
+	ignoreCertErrors: boolean,
+	timeout: number,
+): Promise<boolean> {
+	return new Promise<boolean>((resolve) => {
+		const doRequest = scheme === 'https' ? httpsRequest : httpRequest
+		let settled = false
+		const finish = (result: boolean): void => {
+			if (settled) return
+			settled = true
+			resolve(result)
+		}
+
+		const req = doRequest(
+			{
+				host: address,
+				port,
+				path: '/rest/noauth/health',
+				method: 'GET',
+				...(scheme === 'https' && ignoreCertErrors ? { rejectUnauthorized: false } : {}),
+			},
+			(res) => {
+				res.resume()
+				finish(true)
+			},
+		)
+
+		req.setTimeout(timeout, () => {
+			req.destroy()
+			finish(false)
+		})
+		req.on('error', () => finish(false))
+		req.end()
+	})
+}
+
+/**
+ * Builds a name lookup that asks the network what a given address is called.
+ *
+ * Many home and event networks have no reverse records at all, so a miss is normal and simply
+ * leaves the address without a name.
+ */
+export function createDnsResolver(timeout = 1500): (address: string) => Promise<string | undefined> {
+	return async (address: string) => {
+		try {
+			const names = await Promise.race([
+				dnsReverse(address),
+				new Promise<string[]>((resolve) => setTimeout(() => resolve([]), timeout)),
+			])
+			return names[0]
+		} catch {
+			return undefined
+		}
+	}
+}
+
+export interface LanScannerOptions {
+	/** Creates the shared UDP socket. Companion hosts it, so several connections can listen. */
+	createSocket: () => SharedUdpSocket
+	/**
+	 * Checks whether a host serves a Syncthing web interface.
+	 * Resolves with the scheme that answered, or undefined when nothing did.
+	 */
+	probe: (address: string) => Promise<'http' | 'https' | undefined>
+	/** Looks up the name of an address. Optional, because a network need not answer. */
+	resolveName?: (address: string) => Promise<string | undefined>
+	/** Called whenever the list of reachable hosts changed. */
+	onChange: (hosts: LanHost[]) => void
+	log: (level: LogLevel, message: string) => void
+}
+
+/** Listens for announcements and keeps a list of instances whose web interface answers. */
+export class LanScanner {
+	#options: LanScannerOptions
+	#socket: SharedUdpSocket | undefined
+	#hosts = new Map<string, LanHost>()
+	/** Addresses currently being probed, so a burst of announcements causes one probe. */
+	#probing = new Set<string>()
+	/** Addresses that did not answer, with the time they were last tried. */
+	#unreachable = new Map<string, number>()
+	#running = false
+
+	constructor(options: LanScannerOptions) {
+		this.#options = options
+	}
+
+	/** The reachable hosts heard recently, oldest entries dropped. */
+	get hosts(): LanHost[] {
+		const cutoff = Date.now() - FORGET_AFTER_MS
+		return [...this.#hosts.values()]
+			.filter((host) => host.lastSeen >= cutoff)
+			.sort((a, b) => a.address.localeCompare(b.address))
+	}
+
+	start(): void {
+		if (this.#running) return
+		this.#running = true
+
+		try {
+			const socket = this.#options.createSocket()
+			this.#socket = socket
+
+			socket.on('message', (message, remote) => {
+				this.#handlePacket(message, remote.address)
+			})
+			socket.on('error', (error: Error) => {
+				this.#options.log(
+					'warn',
+					`Cannot listen for Syncthing announcements on port ${DISCOVERY_PORT}: ${error.message}. ` +
+						'Network discovery is off; enter the address by hand.',
+				)
+				this.stop()
+			})
+
+			// No address is given, so the socket listens on every IPv4 interface of this machine.
+			socket.bind(DISCOVERY_PORT, undefined, () => {
+				this.#options.log(
+					'debug',
+					`Listening for Syncthing announcements on port ${DISCOVERY_PORT}, all IPv4 interfaces`,
+				)
+			})
+		} catch (error) {
+			this.#running = false
+			const reason = error instanceof Error ? error.message : String(error)
+			this.#options.log('warn', `Could not start network discovery: ${reason}`)
+		}
+	}
+
+	stop(): void {
+		this.#running = false
+		this.#probing.clear()
+
+		if (this.#socket) {
+			try {
+				this.#socket.close()
+			} catch {
+				// Closing a socket that never bound is not worth reporting.
+			}
+			this.#socket = undefined
+		}
+	}
+
+	/** Forgets which hosts failed the probe, so a changed setup is picked up again. */
+	retryUnreachable(): void {
+		this.#unreachable.clear()
+	}
+
+	/** Probes one newly heard address and, if it answers, records it with whatever name it has. */
+	async #examine(address: string, announcement: Announcement): Promise<void> {
+		const shortId = shortDeviceId(announcement.id)
+
+		let scheme: 'http' | 'https' | undefined
+		try {
+			scheme = await this.#options.probe(address)
+		} catch {
+			scheme = undefined
+		}
+		if (!this.#running) return
+
+		if (!scheme) {
+			this.#unreachable.set(address, Date.now())
+			this.#options.log(
+				'debug',
+				`Syncthing at ${address} (${shortId}) announced itself but its web interface did not answer`,
+			)
+			return
+		}
+
+		// The name is a nicety, so a lookup that fails or throws must not lose the host.
+		let hostname: string | undefined
+		try {
+			hostname = await this.#options.resolveName?.(address)
+		} catch {
+			hostname = undefined
+		}
+		if (!this.#running) return
+
+		this.#hosts.set(address, {
+			address,
+			shortId,
+			hostname,
+			scheme,
+			syncAddresses: announcement.addresses,
+			lastSeen: Date.now(),
+		})
+
+		const named = hostname ? `${address} (${hostname})` : address
+		this.#options.log('info', `Found Syncthing at ${named}, device ${shortId}, web interface reachable`)
+		this.#options.onChange(this.hosts)
+	}
+
+	#handlePacket(packet: Buffer, address: string): void {
+		if (!this.#running) return
+
+		const announcement = parseAnnouncement(packet)
+		if (!announcement) return
+
+		const known = this.#hosts.get(address)
+		if (known) {
+			known.lastSeen = Date.now()
+			return
+		}
+
+		// A host that already failed is not probed again on every announcement.
+		if (this.#probing.has(address) || this.#unreachable.has(address)) return
+
+		this.#probing.add(address)
+		void this.#examine(address, announcement).finally(() => {
+			this.#probing.delete(address)
+		})
+	}
+}

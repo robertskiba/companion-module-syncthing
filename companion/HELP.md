@@ -9,18 +9,42 @@ machines, add one connection per machine.
 
 | Field                          | Meaning                                                           |
 | ------------------------------ | ----------------------------------------------------------------- |
-| Host                           | IP address or hostname of the machine running Syncthing           |
+| Host                           | Picked from the instances found on the network, or typed in       |
 | GUI port                       | Port of the Syncthing web interface, `8384` by default            |
 | Poll interval                  | How often the module refreshes status and variables, in seconds   |
 | API key                        | Taken from the Syncthing GUI under Actions > Settings > General   |
 | Read the API key automatically | Fills the field above from an unprotected web interface           |
 | Use HTTPS                      | Enable if the Syncthing GUI is served over HTTPS                  |
 | Accept self-signed certificate | Needed for HTTPS, because Syncthing generates its own certificate |
+| Look for instances             | Finds Syncthing on the network and offers it in the host list     |
 | Follow the event stream        | Reacts to changes immediately instead of at the next poll         |
 | Poll folder and device details | Turns the per-folder and per-device data on or off                |
 | Detail interval                | How often that per-folder and per-device data is refreshed        |
 
 The API key is stored as a secret, separately from the rest of the configuration.
+
+### Finding instances on the network
+
+Syncthing announces itself by broadcasting on UDP port 21027. The module listens there, on every
+network interface of the Companion machine, and offers what it hears in the host list. Nothing is
+sent out, so the scan is invisible on the network.
+
+The announcement says which device is there, but not where its web interface is. Each newly heard
+instance is therefore checked on the port configured above, and only instances that actually
+answer are offered. That matters because Syncthing binds its web interface to localhost only until
+somebody changes that setting, so an instance can be perfectly healthy and still be unusable from
+another machine.
+
+Each entry shows the address, the name the network resolves it to when there is one, and the first
+block of its device ID, which is the same short form Syncthing shows.
+
+Two things to expect. Announcements arrive every 30 to 60 seconds, so the list can be empty for a
+minute after opening the page; reopen it and the entries appear. And the instance on the Companion
+machine itself announces its network address, where its web interface is usually not bound, so it
+may not be listed. The host list always offers 127.0.0.1 for that case, which is the usual setup
+on Windows and macOS.
+
+Found instances are also written to the connection log as they appear.
 
 ### Getting the API key without copying it
 
@@ -182,6 +206,9 @@ belong in the Syncthing web interface, where you can see what you are doing and 
 ID. They may be reconsidered if enough users ask for them.
 
 ### Known limits
+
+Network discovery listens for IPv4 broadcasts. Syncthing also announces itself by IPv6 multicast,
+which is not listened to; an instance on a dual-stack network is found through IPv4 anyway.
 
 Syncthing buffers a limited number of events. If the module is disconnected for a long time while
 a great deal happens, some events are dropped. The periodic poll covers that case, so the state

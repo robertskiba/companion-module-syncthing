@@ -19,6 +19,7 @@ import { UpdatePresets } from './presets.js'
 import { SyncthingApi, SyncthingApiError } from './api.js'
 import { discoverApiKey } from './discover.js'
 import { EventStream, eventNumber, eventString, type SyncthingEvent } from './events.js'
+import { createDnsResolver, createHttpProbe, LanScanner, type LanHost } from './lanscan.js'
 import {
 	assignPrefixPairs,
 	createEmptyState,
@@ -79,6 +80,9 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	/** Devices whose completion needs re-reading after a FolderCompletion event. */
 	#devicesToRefresh = new Set<string>()
 	#refreshTimer: NodeJS.Timeout | undefined
+	#scanner: LanScanner | undefined
+	/** Syncthing instances found on the network whose web interface answered. */
+	lanHosts: LanHost[] = []
 	/** Remembers the last reported problem so the log is not flooded while an instance is down. */
 	#lastFailureMessage: string | undefined
 
@@ -95,10 +99,13 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		this.updatePresets()
 		this.updateVariableDefinitions()
 
+		this.#applyLanScan()
 		this.#applyConfig()
 	}
 
 	async destroy(): Promise<void> {
+		this.#scanner?.stop()
+		this.#scanner = undefined
 		this.#stopPolling()
 		this.#api = undefined
 		this.log('debug', 'destroy')
@@ -107,11 +114,44 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	async configUpdated(config: ModuleConfig, secrets: ModuleSecrets): Promise<void> {
 		this.config = config
 		this.secrets = secrets ?? { apiKey: '' }
+		this.#applyLanScan()
 		this.#applyConfig()
 	}
 
 	getConfigFields(): SomeCompanionConfigField[] {
-		return GetConfigFields(this.config)
+		return GetConfigFields(this.config, this.lanHosts)
+	}
+
+	/**
+	 * Starts or stops listening for Syncthing announcements.
+	 *
+	 * This runs independently of the connection, so instances can be found before anything has
+	 * been configured, which is the point of it.
+	 */
+	#applyLanScan(): void {
+		if (!this.config.lanScan) {
+			this.#scanner?.stop()
+			this.#scanner = undefined
+			this.lanHosts = []
+			return
+		}
+
+		if (this.#scanner) {
+			// The port or certificate setting may have changed, so hosts that failed get another go.
+			this.#scanner.retryUnreachable()
+			return
+		}
+
+		this.#scanner = new LanScanner({
+			createSocket: () => this.createSharedUdpSocket('udp4'),
+			probe: createHttpProbe(this.config.port || 8384, this.config.ignoreCertErrors),
+			resolveName: createDnsResolver(),
+			onChange: (hosts) => {
+				this.lanHosts = hosts
+			},
+			log: (level, message) => this.log(level, message),
+		})
+		this.#scanner.start()
 	}
 
 	updateActions(): void {

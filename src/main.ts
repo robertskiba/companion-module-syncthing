@@ -159,10 +159,25 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			ownAddresses: localIpv4Addresses,
 			onChange: (hosts) => {
 				this.lanHosts = hosts
+				this.#publishDiscovered()
 			},
 			log: (level, message) => this.log(level, message),
 		})
 		this.#scanner.start()
+	}
+
+	/**
+	 * Publishes what the network search has found.
+	 *
+	 * The connection configuration only asks for its fields once, so a list that fills a minute
+	 * later cannot reach it. These variables are the live view, and they work before a host has
+	 * even been chosen.
+	 */
+	#publishDiscovered(): void {
+		this.setVariableValues({
+			discovered_hosts: this.lanHosts.map((host) => host.hostname ?? host.address).join(', '),
+			discovered_count: this.lanHosts.length,
+		})
 	}
 
 	updateActions(): void {
@@ -722,6 +737,8 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			my_id: myId,
 			my_id_short: myId.split('-')[0] ?? myId,
 			gui_url: this.state.guiUrl,
+			discovered_hosts: this.lanHosts.map((host) => host.hostname ?? host.address).join(', '),
+			discovered_count: this.lanHosts.length,
 			device_name: this.state.ownDeviceName,
 			uptime_seconds: status.uptime,
 			uptime: formatUptime(status.uptime),
@@ -779,6 +796,8 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			all_in_sync: 'false',
 			// Published even while down, so a button can still open the GUI to investigate.
 			gui_url: this.state.guiUrl,
+			discovered_hosts: this.lanHosts.map((host) => host.hostname ?? host.address).join(', '),
+			discovered_count: this.lanHosts.length,
 		})
 		this.checkAllFeedbacks()
 	}

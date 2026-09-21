@@ -29,6 +29,10 @@ export interface VariablesSchema extends CompanionVariableValues {
 	my_id_short: string
 	/** The base URL of the Syncthing web interface this connection talks to. */
 	gui_url: string
+	/** Addresses of the Syncthing instances found on the network, separated by commas. */
+	discovered_hosts: string
+	/** How many instances have been found on the network. */
+	discovered_count: number
 	/** The configured name of this device. */
 	device_name: string
 	/** Seconds since the Syncthing process started. */
@@ -78,6 +82,8 @@ const STATIC_DEFINITIONS: CompanionVariableDefinitions<VariablesSchema> = {
 	my_id: { name: 'Own device ID' },
 	my_id_short: { name: 'Own device ID (short)' },
 	gui_url: { name: 'URL of the Syncthing web interface' },
+	discovered_hosts: { name: 'Instances found on the network' },
+	discovered_count: { name: 'Number of instances found on the network' },
 	device_name: { name: 'Own device name' },
 	uptime_seconds: { name: 'Uptime in seconds' },
 	uptime: { name: 'Uptime (formatted)' },

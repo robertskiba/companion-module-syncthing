@@ -142,10 +142,11 @@ export function GetConfigFields(current?: Partial<ModuleConfig>, detected: LanHo
 		{
 			type: 'checkbox',
 			id: 'autoApiKey',
-			label: 'Read the API key automatically when the field above is empty',
+			label: 'Try to read the API key automatically when the field above is empty',
 			tooltip:
-				'Works only while the Syncthing web interface has no username and password. ' +
-				'The key is then stored here like a key you typed in yourself.',
+				'Only possible while the Syncthing web interface has no username and password. ' +
+				'The key is then stored here like a key you typed in yourself. If the interface is ' +
+				'protected the attempt fails, the log says so, and you enter the key by hand.',
 			width: 12,
 			default: DEFAULT_CONFIG.autoApiKey,
 		},

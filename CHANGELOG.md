@@ -15,7 +15,11 @@ been tested against real Syncthing instances.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- The option for reading the API key now says "try to", because that is what it does. An instance
+  whose web interface is properly protected refuses, which is correct behaviour on its part, and
+  the key then has to be entered by hand. The tooltip says so too.
 
 ## [0.1.4] - 2026-09-21
 

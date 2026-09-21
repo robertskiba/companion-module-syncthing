@@ -17,6 +17,20 @@ been tested against real Syncthing instances.
 
 Nothing yet.
 
+## [0.1.8] - 2026-09-21
+
+### Added
+
+- The list of found instances now fills itself while the configuration page is open, instead of
+  only when the page is reopened. Companion rebuilds the page when a connection is saved, so
+  saving the configuration unchanged is what makes a list that filled in the meantime appear.
+  There is no dedicated way to do this, and other modules with a network search use the same
+  trick.
+- That redraw discards anything half typed into the page, so it is kept to the setup phase: only
+  while no host has been set, only when the list actually grew, and at most once every ten
+  seconds. It also runs once when the search has had its fair chance, so "nothing found on the
+  network" appears by itself too.
+
 ## [0.1.7] - 2026-09-21
 
 ### Changed

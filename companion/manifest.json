@@ -5,7 +5,7 @@
 	"name": "syncthing",
 	"shortname": "Syncthing",
 	"description": "Monitor and control a Syncthing instance via its REST API",
-	"version": "0.1.7",
+	"version": "0.1.8",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-syncthing.git",
 	"bugs": "https://github.com/bitfocus/companion-module-syncthing/issues",

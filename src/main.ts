@@ -19,7 +19,14 @@ import { UpdatePresets } from './presets.js'
 import { SyncthingApi, SyncthingApiError } from './api.js'
 import { discoverApiKey } from './discover.js'
 import { EventStream, eventNumber, eventString, type SyncthingEvent } from './events.js'
-import { createHttpProbe, createNameResolver, LanScanner, localIpv4Addresses, type LanHost } from './lanscan.js'
+import {
+	createHttpProbe,
+	createNameResolver,
+	FIRST_RESULTS_AFTER_MS,
+	LanScanner,
+	localIpv4Addresses,
+	type LanHost,
+} from './lanscan.js'
 import {
 	assignPrefixPairs,
 	createEmptyState,
@@ -89,6 +96,11 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	#probeSettings = ''
 	/** Syncthing instances found on the network whose web interface answered. */
 	lanHosts: LanHost[] = []
+	/** How many instances the configuration page was last redrawn for. */
+	#panelShowedHosts = -1
+	/** When the configuration page was last forced to redraw, to keep that rare. */
+	#lastPanelRefresh = 0
+	#firstResultsTimer: NodeJS.Timeout | undefined
 	/** Remembers the last reported problem so the log is not flooded while an instance is down. */
 	#lastFailureMessage: string | undefined
 
@@ -110,6 +122,10 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	}
 
 	async destroy(): Promise<void> {
+		if (this.#firstResultsTimer) {
+			clearTimeout(this.#firstResultsTimer)
+			this.#firstResultsTimer = undefined
+		}
 		this.#scanner?.stop()
 		this.#scanner = undefined
 		this.#stopPolling()
@@ -172,10 +188,40 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			onChange: (hosts) => {
 				this.lanHosts = hosts
 				this.#publishDiscovered()
+				this.#refreshConfigPanel()
 			},
 			log: (level, message) => this.log(level, message),
 		})
 		this.#scanner.start()
+
+		// The page cannot be told that the search came up empty either, so it is redrawn once the
+		// search has had its fair chance, which is when "nothing found" becomes worth showing.
+		this.#firstResultsTimer = setTimeout(() => {
+			this.#firstResultsTimer = undefined
+			this.#refreshConfigPanel()
+		}, FIRST_RESULTS_AFTER_MS + 1000)
+	}
+
+	/**
+	 * Makes an open configuration page redraw itself.
+	 *
+	 * Companion asks the module for its fields when the page opens and offers no way to extend
+	 * them afterwards, but it does rebuild the page when the configuration is saved. Saving the
+	 * configuration unchanged is therefore the only way to show a list that filled in the
+	 * meantime. The same trick is used by other modules with a network search.
+	 *
+	 * A redraw discards whatever is half typed into the page, so this is kept to the setup phase,
+	 * only when the list actually grew, and at most once every ten seconds.
+	 */
+	#refreshConfigPanel(): void {
+		if (this.config.host) return
+		if (this.lanHosts.length === this.#panelShowedHosts) return
+		if (Date.now() - this.#lastPanelRefresh < 10_000) return
+
+		this.#panelShowedHosts = this.lanHosts.length
+		this.#lastPanelRefresh = Date.now()
+		this.log('debug', `Redrawing the configuration page for ${this.lanHosts.length} found instance(s)`)
+		this.saveConfig(this.config, this.secrets)
 	}
 
 	/**

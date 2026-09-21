@@ -280,6 +280,25 @@ console.log('4. no host chosen means nothing is contacted')
 	)
 	check('the connection variable is false', record.variables.connected === 'false')
 
+	// The search does reach the instance on this machine, and finding it has to reach the open
+	// configuration page, which only redraws when the configuration is saved.
+	const found = await waitFor(() => record.saveCount > 0, 'the page to be redrawn')
+	check('finding something redraws the configuration page', found, String(record.saveCount))
+	check(
+		'the saved configuration is unchanged',
+		record.savedConfig?.host === '',
+		JSON.stringify(record.savedConfig?.host),
+	)
+	check(
+		'the found instance is published',
+		record.variables.discovered_count === 1,
+		String(record.variables.discovered_count),
+	)
+
+	const before = record.saveCount
+	await new Promise((r) => setTimeout(r, 500))
+	check('it is not redrawn again for the same list', record.saveCount === before, String(record.saveCount))
+
 	await instance.destroy()
 	syncthing.server.close()
 }

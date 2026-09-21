@@ -33,7 +33,7 @@ export const LOCAL_ADDRESS = '127.0.0.1'
  * Instances announce themselves every 30 to 60 seconds, so anything shorter would report an empty
  * network while the first announcements are still on their way.
  */
-const FIRST_RESULTS_AFTER_MS = 35_000
+export const FIRST_RESULTS_AFTER_MS = 35_000
 
 /** How often the instance on this machine is checked, since it cannot be waited for. */
 const LOCAL_PROBE_INTERVAL_MS = 60_000

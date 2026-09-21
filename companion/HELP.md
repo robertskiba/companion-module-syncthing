@@ -16,8 +16,6 @@ machines, add one connection per machine.
 | Try to read the API key        | Fills the field above from an unprotected web interface           |
 | Use HTTPS                      | Enable if the Syncthing GUI is served over HTTPS                  |
 | Accept self-signed certificate | Needed for HTTPS, because Syncthing generates its own certificate |
-| Poll folder and device details | Turns the per-folder and per-device data on or off                |
-| Detail interval                | How often that per-folder and per-device data is refreshed        |
 
 A new connection starts with no host chosen, and contacts nothing at all until you pick one. That
 includes the machine Companion runs on: 127.0.0.1 is offered in the list, but never chosen for
@@ -93,9 +91,11 @@ host check error. Untick the option if you would rather the module never tried.
 If Syncthing runs on a different machine than Companion, its GUI must listen on more than
 localhost. Set the GUI listen address to `0.0.0.0:8384` in the Syncthing settings.
 
-Details cost one request per folder and one per device, and Syncthing describes the folder status
-call as expensive on large folders. That is why they run on their own, slower interval, and can be
-switched off entirely if you only need the overall status.
+Per-folder and per-device numbers cost one request each, and Syncthing describes the folder status
+call as expensive on large folders. The module therefore chooses that rate itself rather than
+asking you: while the event stream is connected the numbers arrive in the events and this call is
+only a safety net, running at most every two minutes. Without events it is the only source and
+runs every thirty seconds.
 
 ### How the module stays up to date
 

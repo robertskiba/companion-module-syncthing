@@ -55,6 +55,8 @@ export type ModuleSchema = {
 const REQUEST_TIMEOUT_MS = 10_000
 /** Slowest the detail poll runs while the event stream is delivering changes. */
 const EVENT_FALLBACK_SECONDS = 120
+/** How often folder and device detail is read when the event stream is not connected. */
+const DETAIL_SECONDS_WITHOUT_EVENTS = 30
 /** The Syncthing web interface port, used for probing before one has been configured. */
 const DEFAULT_PORT = 8384
 
@@ -273,8 +275,13 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 
 			this.log('info', `Read the API key from ${this.state.guiUrl} and saved it in the connection`)
 			this.secrets = { apiKey: key }
-			// Saving triggers configUpdated, which starts the connection with the key in place.
+
+			// Saving only persists the key for next time; Companion does not call back into the
+			// module for it. Connecting is this method's own job, or the connection sits at
+			// "Looking for the API key" with the key already in hand.
 			this.saveConfig(this.config, this.secrets)
+			this.#discoveryRunning = false
+			this.#applyConfig()
 		} catch (error) {
 			const reason = error instanceof Error ? error.message : String(error)
 			this.log(
@@ -545,15 +552,18 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		this.checkAllFeedbacks()
 	}
 
+	/**
+	 * Decides whether to read folder and device detail this time round.
+	 *
+	 * The call Syncthing describes as expensive lives here, so the rate is chosen rather than
+	 * configured. While events are flowing the numbers arrive on their own and this is only a
+	 * safety net for an event that was missed. Without events it is the only source, so it runs
+	 * much more often.
+	 */
 	#shouldPollDetails(force: boolean): boolean {
-		if (!this.config.pollDetails) return false
 		if (force || this.#lastDetailPoll === 0) return true
 
-		// While events are flowing, folder detail arrives on its own, so the poll only has to
-		// act as a safety net in case an event was missed.
-		const configured = Math.max(1, this.config.detailInterval)
-		const seconds = this.#eventStream?.connected ? Math.max(configured, EVENT_FALLBACK_SECONDS) : configured
-
+		const seconds = this.#eventStream?.connected ? EVENT_FALLBACK_SECONDS : DETAIL_SECONDS_WITHOUT_EVENTS
 		return Date.now() - this.#lastDetailPoll >= seconds * 1000
 	}
 

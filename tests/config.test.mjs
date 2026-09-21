@@ -139,6 +139,13 @@ console.log('6. there are no switches for things that should always run')
 	check('no switch for the event stream', !ids.includes('useEvents'), JSON.stringify(ids))
 	check('no switch for the network search', !ids.includes('lanScan'), JSON.stringify(ids))
 	check('the defaults carry neither', !('useEvents' in DEFAULT_CONFIG) && !('lanScan' in DEFAULT_CONFIG))
+	check('no switch for folder detail', !ids.includes('pollDetails'), JSON.stringify(ids))
+	check('no interval for folder detail', !ids.includes('detailInterval'), JSON.stringify(ids))
+	check(
+		'the defaults carry neither either',
+		!('pollDetails' in DEFAULT_CONFIG) && !('detailInterval' in DEFAULT_CONFIG),
+	)
+	check('what is left is a short list', ids.length <= 8, JSON.stringify(ids))
 	check('the host can still be typed in by hand', field(GetConfigFields(), 'host')?.allowCustom === true)
 }
 

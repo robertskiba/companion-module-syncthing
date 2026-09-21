@@ -17,6 +17,28 @@ been tested against real Syncthing instances.
 
 Nothing yet.
 
+## [0.1.6] - 2026-09-21
+
+### Fixed
+
+- A connection that found the API key by itself stayed at "Looking for the API key" with the key
+  already in hand. Saving the key only persists it; Companion does not call back into the module
+  for it, so connecting was this step's own job and never happened.
+
+### Removed
+
+- The switch and the interval for folder and device detail. Both became misleading once the event
+  stream was always on: the numbers now arrive in the events, so the expensive call is already
+  down to a safety net every two minutes, and turning it off would leave the folder variables
+  empty on an instance where nothing happens to generate an event. The module picks the rate
+  itself, two minutes with events and thirty seconds without.
+
+### Added
+
+- End-to-end checks that drive the real module instance against a simulated Syncthing, through the
+  same contract Companion uses. This is the level that catches a connection which finds its key
+  and then fails to connect, which unit checks of the parts could not.
+
 ## [0.1.5] - 2026-09-21
 
 ### Added

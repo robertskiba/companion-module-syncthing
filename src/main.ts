@@ -120,12 +120,22 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	async configUpdated(config: ModuleConfig, secrets: ModuleSecrets): Promise<void> {
 		this.config = config
 		this.secrets = secrets ?? { apiKey: '' }
+
+		// Picking an instance from the found list is a one-shot action, not a stored choice: it
+		// fills in the host and then clears itself, leaving the host free to edit afterwards.
+		if (this.config.foundHosts) {
+			this.config.host = this.config.foundHosts
+			this.config.foundHosts = ''
+			this.log('info', `Using ${this.config.host} from the instances found on the network`)
+			this.saveConfig(this.config, this.secrets)
+		}
+
 		this.#applyLanScan()
 		this.#applyConfig()
 	}
 
 	getConfigFields(): SomeCompanionConfigField[] {
-		return GetConfigFields(this.config, this.lanHosts)
+		return GetConfigFields(this.config, this.lanHosts, this.#scanner?.hasSearched ?? false)
 	}
 
 	/**

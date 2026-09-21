@@ -3,6 +3,8 @@ import type { LanHost } from './lanscan.js'
 
 export type ModuleConfig = {
 	host: string
+	/** A one-shot trigger: picking a found instance here fills in the host, then clears itself. */
+	foundHosts: string
 	port: number
 	useHttps: boolean
 	ignoreCertErrors: boolean
@@ -17,6 +19,7 @@ export type ModuleSecrets = {
 
 export const DEFAULT_CONFIG: ModuleConfig = {
 	host: '',
+	foundHosts: '',
 	port: 8384,
 	useHttps: false,
 	ignoreCertErrors: true,
@@ -43,23 +46,15 @@ function describeHost(host: LanHost): string {
 	return `${parts[0]} - ${parts.slice(1).join(', ')}`
 }
 
-/**
- * The entries offered for the host field: whatever was found on the network, plus the address
- * already configured, so the current value never disappears from the list.
- */
-function hostChoices(current: string | undefined, detected: LanHost[]): DropdownChoice[] {
-	const choices: DropdownChoice[] = detected.map((host) => ({
-		id: host.address,
-		label: describeHost(host),
-	}))
-
-	if (current && !choices.some((choice) => choice.id === current)) {
-		choices.unshift({ id: current, label: current })
+/** The entries offered by the picker for instances found on the network. */
+function foundChoices(detected: LanHost[]): DropdownChoice[] {
+	if (detected.length === 0) {
+		return [{ id: '', label: 'Nothing found on the network' }]
 	}
-
-	// An explicit empty entry, so "nothing chosen" is a real value the dropdown can hold.
-	choices.unshift({ id: NO_HOST, label: 'Select a host' })
-	return choices
+	return [
+		{ id: '', label: 'Pick an instance to use it below...' },
+		...detected.map((host) => ({ id: host.address, label: describeHost(host) })),
+	]
 }
 
 /**
@@ -89,7 +84,11 @@ function describeDetected(detected: LanHost[]): string {
 	return `Found on the network so far: ${list.join(', ')}. ` + refresh
 }
 
-export function GetConfigFields(current?: Partial<ModuleConfig>, detected: LanHost[] = []): SomeCompanionConfigField[] {
+export function GetConfigFields(
+	current?: Partial<ModuleConfig>,
+	detected: LanHost[] = [],
+	hasSearched = false,
+): SomeCompanionConfigField[] {
 	const guiUrl = guiUrlFor({
 		host: current?.host ?? NO_HOST,
 		port: current?.port ?? DEFAULT_CONFIG.port,
@@ -111,15 +110,30 @@ export function GetConfigFields(current?: Partial<ModuleConfig>, detected: LanHo
 					: 'No host has been chosen yet, so nothing is being contacted. ') +
 				`${describeDetected(detected)}`,
 		},
+		// Kept hidden until the search has had a fair chance, so an empty network is a real answer
+		// rather than a claim made before the first announcements could have arrived.
+		...(hasSearched
+			? [
+					{
+						type: 'dropdown' as const,
+						id: 'foundHosts',
+						label: 'Instances found on the network',
+						tooltip:
+							'Filled in by listening for the announcements Syncthing broadcasts. ' +
+							'Picking one puts its address in the Host field below.',
+						choices: foundChoices(detected),
+						default: '',
+						width: 12,
+					},
+				]
+			: []),
 		{
-			type: 'dropdown',
+			type: 'textinput',
 			id: 'host',
 			label: 'Host',
-			tooltip: 'Instances found on the network are offered here. ' + 'Any other address can be typed in instead.',
+			tooltip: 'IP address or hostname of the machine running Syncthing',
 			width: 6,
 			default: NO_HOST,
-			choices: hostChoices(current?.host, detected),
-			allowCustom: true,
 			regex: Regex.HOSTNAME,
 		},
 		{

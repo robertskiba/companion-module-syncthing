@@ -177,6 +177,7 @@ const baseConfig = (port) => ({
 	ignoreCertErrors: true,
 	pollInterval: 1,
 	autoApiKey: true,
+	foundHosts: '',
 })
 
 console.log('1. connecting with a key that was typed in')
@@ -283,7 +284,31 @@ console.log('4. no host chosen means nothing is contacted')
 	syncthing.server.close()
 }
 
-console.log('5. an unreachable instance reports a connection failure')
+console.log('5. picking a found instance fills in the host')
+{
+	const syncthing = await startSyncthing({ requireKey: true, apiKey: 'found-key' })
+	const { context, record } = makeContext()
+	const instance = new ModuleInstance(context)
+
+	await instance.init({ ...baseConfig(syncthing.port), host: '' }, true, { apiKey: '' })
+	await new Promise((r) => setTimeout(r, 200))
+	check('nothing is contacted while the host is empty', record.statuses.at(-1)?.message === 'No host chosen yet')
+
+	// This is what selecting an entry in the found list sends back.
+	await instance.configUpdated({ ...baseConfig(syncthing.port), host: '', foundHosts: '127.0.0.1' }, { apiKey: '' })
+
+	check('the picked address becomes the host', instance.config.host === '127.0.0.1', instance.config.host)
+	check('the picker resets itself', instance.config.foundHosts === '', JSON.stringify(instance.config.foundHosts))
+	check('the choice is persisted', record.savedConfig?.host === '127.0.0.1', JSON.stringify(record.savedConfig?.host))
+
+	const cameUp = await waitFor(() => record.statuses.some((s) => s.status === 'ok'), 'the connection to come up')
+	check('it connects to the picked instance', cameUp, JSON.stringify(record.statuses.at(-1)))
+
+	await instance.destroy()
+	syncthing.server.close()
+}
+
+console.log('6. an unreachable instance reports a connection failure')
 {
 	const { context, record } = makeContext()
 	const instance = new ModuleInstance(context)

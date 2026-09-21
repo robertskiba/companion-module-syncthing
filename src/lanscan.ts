@@ -27,6 +27,14 @@ export const DISCOVERY_MAGIC = 0x2ea7d90b
 /** The address of the instance on this machine, which never announces itself to us usefully. */
 export const LOCAL_ADDRESS = '127.0.0.1'
 
+/**
+ * How long to wait before admitting that nothing was found.
+ *
+ * Instances announce themselves every 30 to 60 seconds, so anything shorter would report an empty
+ * network while the first announcements are still on their way.
+ */
+const FIRST_RESULTS_AFTER_MS = 35_000
+
 /** How often the instance on this machine is checked, since it cannot be waited for. */
 const LOCAL_PROBE_INTERVAL_MS = 60_000
 
@@ -354,6 +362,8 @@ export class LanScanner {
 	/** The device ID of the instance on this machine, once it has announced itself. */
 	#localShortId: string | undefined
 	#running = false
+	/** When listening began, so "nothing found" is only said once it means something. */
+	#startedAt = 0
 
 	constructor(options: LanScannerOptions) {
 		this.#options = options
@@ -367,9 +377,21 @@ export class LanScanner {
 			.sort((a, b) => a.address.localeCompare(b.address))
 	}
 
+	/**
+	 * Whether the search has had a fair chance to find something.
+	 *
+	 * False right after starting, so the configuration can stay quiet rather than claim an empty
+	 * network before the first announcements could possibly have arrived.
+	 */
+	get hasSearched(): boolean {
+		if (this.#hosts.size > 0) return true
+		return this.#startedAt > 0 && Date.now() - this.#startedAt >= FIRST_RESULTS_AFTER_MS
+	}
+
 	start(): void {
 		if (this.#running) return
 		this.#running = true
+		this.#startedAt = Date.now()
 
 		// The instance on this machine cannot be waited for, because we never receive a broadcast
 		// that is useful for reaching it, so it is checked directly and then repeatedly.

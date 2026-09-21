@@ -17,6 +17,19 @@ been tested against real Syncthing instances.
 
 Nothing yet.
 
+## [0.1.7] - 2026-09-21
+
+### Changed
+
+- The instances found on the network moved into their own list above the host field, and the host
+  went back to being a plain text field. Picking an entry fills the host in and the list returns
+  to its placeholder, so it assists rather than decides. A text field is also honest about the
+  fact that discovery only reaches the same broadcast domain, and that anything further away has
+  to be typed in.
+- That list stays hidden until the search has had about thirty five seconds, which is longer than
+  the interval Syncthing announces itself on. "Nothing found on the network" is then a real
+  answer rather than a claim made too early.
+
 ## [0.1.6] - 2026-09-21
 
 ### Fixed

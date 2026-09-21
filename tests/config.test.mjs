@@ -1,7 +1,6 @@
 // Checks that a freshly added connection contacts nothing until a host has been chosen.
 const D = '../dist'
 const { GetConfigFields, DEFAULT_CONFIG, guiUrlFor, NO_HOST } = await import(`${D}/config.js`)
-const { LOCAL_ADDRESS } = await import(`${D}/lanscan.js`)
 
 let failures = 0
 const check = (name, cond, detail = '') => {
@@ -20,36 +19,29 @@ check('the default host is empty', DEFAULT_CONFIG.host === NO_HOST, JSON.stringi
 	const fields = GetConfigFields()
 	const host = field(fields, 'host')
 	check('the host field exists', host !== undefined)
-	check('it is a list', host?.type === 'dropdown', host?.type)
-	check('nothing is preselected', host?.default === NO_HOST, JSON.stringify(host?.default))
-	check('the empty value is a real choice', host?.choices?.[0]?.id === NO_HOST, JSON.stringify(host?.choices?.[0]))
-	check('it invites a choice', /select/i.test(host?.choices?.[0]?.label ?? ''), host?.choices?.[0]?.label)
-	check('a custom address can still be typed', host?.allowCustom === true)
+	check('it is a plain text field', host?.type === 'textinput', host?.type)
+	check('nothing is prefilled', host?.default === NO_HOST, JSON.stringify(host?.default))
+	check('it always stays editable', host?.type === 'textinput')
 }
 
-console.log('2. localhost is not assumed to be there')
+console.log('2. the found list stays hidden until the search has had a chance')
 {
-	const fields = GetConfigFields()
-	const host = field(fields, 'host')
-	const listed = host?.choices?.some((c) => c.id === LOCAL_ADDRESS)
-	check('localhost is not offered on its own', listed !== true, JSON.stringify(host?.choices))
-	check('it is not the default', host?.default !== LOCAL_ADDRESS, JSON.stringify(host?.default))
-}
-{
-	// Once it has actually answered, the scanner reports it like any other host.
-	const detected = [
-		{
-			address: LOCAL_ADDRESS,
-			shortId: 'ABCDEFG',
-			hostname: 'this machine',
-			scheme: 'http',
-			syncAddresses: [],
-			lastSeen: Date.now(),
-		},
-	]
-	const host = field(GetConfigFields({ host: NO_HOST }, detected), 'host')
-	check('a reachable local instance is listed', host?.choices?.some((c) => c.id === LOCAL_ADDRESS) === true)
-	check('still nothing preselected', host?.default === NO_HOST, JSON.stringify(host?.default))
+	const before = GetConfigFields({ host: NO_HOST }, [], false)
+	check('no picker before then', field(before, 'foundHosts') === undefined, JSON.stringify(before.map((f) => f.id)))
+
+	const after = GetConfigFields({ host: NO_HOST }, [], true)
+	const picker = field(after, 'foundHosts')
+	check('the picker appears once it has', picker !== undefined)
+	check(
+		'an empty network is a real answer',
+		/nothing found/i.test(picker?.choices?.[0]?.label ?? ''),
+		picker?.choices?.[0]?.label,
+	)
+	check(
+		'it sits above the host field',
+		after.findIndex((f) => f.id === 'foundHosts') < after.findIndex((f) => f.id === 'host'),
+	)
+	check('it starts on the placeholder', picker?.default === '', JSON.stringify(picker?.default))
 }
 
 console.log('3. nothing suggests a connection while no host is set')
@@ -65,12 +57,7 @@ console.log('4. once a host is set, it is kept and shown')
 	const current = { host: '192.168.1.5', port: 8384, useHttps: false }
 	const fields = GetConfigFields(current)
 	const host = field(fields, 'host')
-	check('the chosen host is a choice', host?.choices?.some((c) => c.id === '192.168.1.5') === true)
-	check(
-		'it appears right after the empty entry',
-		host?.choices?.[1]?.id === '192.168.1.5',
-		JSON.stringify(host?.choices),
-	)
+	check('the field holds whatever was typed', host?.type === 'textinput', host?.type)
 	check('the address is derived', guiUrlFor(current) === 'http://192.168.1.5:8384', guiUrlFor(current))
 	check('https is honoured', guiUrlFor({ ...current, useHttps: true }) === 'https://192.168.1.5:8384')
 
@@ -78,7 +65,7 @@ console.log('4. once a host is set, it is kept and shown')
 	check('the text now names the address', /192\.168\.1\.5:8384/.test(info?.value ?? ''), info?.value)
 }
 
-console.log('5. found hosts are offered, still without preselecting anything')
+console.log('5. found hosts are offered by the picker, never chosen for you')
 {
 	const detected = [
 		{
@@ -98,11 +85,13 @@ console.log('5. found hosts are offered, still without preselecting anything')
 			lastSeen: Date.now(),
 		},
 	]
-	const fields = GetConfigFields({ host: NO_HOST }, detected)
+	const fields = GetConfigFields({ host: NO_HOST }, detected, true)
 	const host = field(fields, 'host')
+	const picker = field(fields, 'foundHosts')
 
-	check('still nothing preselected', host?.default === NO_HOST, JSON.stringify(host?.default))
-	const labels = (host?.choices ?? []).map((c) => c.label)
+	check('the host itself stays empty', host?.default === NO_HOST, JSON.stringify(host?.default))
+	check('the picker starts on the placeholder', picker?.default === '', JSON.stringify(picker?.default))
+	const labels = (picker?.choices ?? []).map((c) => c.label)
 	check(
 		'a found host is listed',
 		labels.some((l) => l.includes('192.168.1.9')),
@@ -128,6 +117,10 @@ console.log('5. found hosts are offered, still without preselecting anything')
 		!labels.some((l) => l.includes('device ,')),
 		JSON.stringify(labels),
 	)
+	check(
+		'each found address is selectable',
+		(picker?.choices ?? []).some((c) => c.id === '192.168.1.9'),
+	)
 
 	const info = field(fields, 'info')
 	check('the text lists what was found', /192\.168\.1\.9/.test(info?.value ?? ''), info?.value)
@@ -146,7 +139,7 @@ console.log('6. there are no switches for things that should always run')
 		!('pollDetails' in DEFAULT_CONFIG) && !('detailInterval' in DEFAULT_CONFIG),
 	)
 	check('what is left is a short list', ids.length <= 8, JSON.stringify(ids))
-	check('the host can still be typed in by hand', field(GetConfigFields(), 'host')?.allowCustom === true)
+	check('the host can still be typed in by hand', field(GetConfigFields(), 'host')?.type === 'textinput')
 }
 
 console.log('7. the discovery hint when nothing has been heard')

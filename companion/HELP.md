@@ -9,7 +9,8 @@ machines, add one connection per machine.
 
 | Field                          | Meaning                                                           |
 | ------------------------------ | ----------------------------------------------------------------- |
-| Host                           | Empty at first. Pick a found instance, or type an address in      |
+| Instances found on the network | Appears once the search has run. Pick one to fill in the host     |
+| Host                           | IP address or hostname. Empty on a fresh connection               |
 | GUI port                       | Port of the Syncthing web interface, `8384` by default            |
 | Poll interval                  | How often the module refreshes status and variables, in seconds   |
 | API key                        | Taken from the Syncthing GUI under Actions > Settings > General   |
@@ -30,9 +31,15 @@ Syncthing announces itself by broadcasting on UDP port 21027. The module listens
 network interface of the Companion machine, and offers what it hears in the host list. Nothing is
 sent out, so the scan is invisible on the network.
 
-You can always type an address in instead of picking one. Discovery only reaches machines in the
-same broadcast domain, so an instance on another subnet, behind a router or across a VPN is never
-found, and typing its address is the only way to reach it.
+The found instances sit in their own list above the host field. Picking one fills the host in and
+the list goes back to its placeholder, so it is an assist rather than a setting. The host field
+stays a plain text field you can edit at any time, which matters because discovery only reaches
+machines in the same broadcast domain: an instance on another subnet, behind a router or across a
+VPN is never found, and typing its address is the only way to reach it.
+
+The list stays hidden until the search has had a fair chance, about thirty five seconds. That way
+"nothing found on the network" is a real answer rather than a claim made before the first
+announcements could have arrived.
 
 The announcement says which device is there, but not where its web interface is. Each newly heard
 instance is therefore checked on the port configured above, and only instances that actually

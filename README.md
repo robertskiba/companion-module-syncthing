@@ -21,18 +21,19 @@ exercise the REST client and the state helpers against a simulated Syncthing ser
 
 ## Project layout
 
-| File               | Contents                                                          |
-| ------------------ | ----------------------------------------------------------------- |
-| `src/main.ts`      | The instance class, polling loop and state publishing             |
-| `src/api.ts`       | REST client for the Syncthing API, including error classification |
-| `src/types.ts`     | Types for the REST responses this module reads                    |
-| `src/state.ts`     | Folder and device state, variable naming and completion maths     |
-| `src/config.ts`    | Connection settings shown in the Companion web UI                 |
-| `src/actions.ts`   | Actions                                                           |
-| `src/feedbacks.ts` | Feedbacks                                                         |
-| `src/variables.ts` | Variable definitions and the uptime formatter                     |
-| `src/presets.ts`   | Ready-made buttons                                                |
-| `tests/`           | Dependency-free checks, run with `yarn test` after `yarn build`   |
+| File               | Contents                                                            |
+| ------------------ | ------------------------------------------------------------------- |
+| `src/main.ts`      | The instance class, polling loop and state publishing               |
+| `src/api.ts`       | REST client for the Syncthing API, including error classification   |
+| `src/types.ts`     | Types for the REST responses this module reads                      |
+| `src/state.ts`     | Folder and device state, variable naming and completion maths       |
+| `src/config.ts`    | Connection settings shown in the Companion web UI                   |
+| `src/discover.ts`  | Reads the API key from an instance whose web interface has no login |
+| `src/actions.ts`   | Actions                                                             |
+| `src/feedbacks.ts` | Feedbacks                                                           |
+| `src/variables.ts` | Variable definitions and the uptime formatter                       |
+| `src/presets.ts`   | Ready-made buttons                                                  |
+| `tests/`           | Dependency-free checks, run with `yarn test` after `yarn build`     |
 
 ## Roadmap
 

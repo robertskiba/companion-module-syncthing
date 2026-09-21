@@ -8,6 +8,7 @@ export type ModuleConfig = {
 	pollInterval: number
 	pollDetails: boolean
 	detailInterval: number
+	autoApiKey: boolean
 }
 
 /** Values stored separately from the config so they are not echoed back to the web UI. */
@@ -23,6 +24,7 @@ export const DEFAULT_CONFIG: ModuleConfig = {
 	pollInterval: 5,
 	pollDetails: true,
 	detailInterval: 10,
+	autoApiKey: true,
 }
 
 /** The base URL of the web interface for a given configuration. */
@@ -86,6 +88,16 @@ export function GetConfigFields(current?: Partial<ModuleConfig>): SomeCompanionC
 			label: 'API key',
 			tooltip: 'Syncthing web GUI: Actions > Settings > General > API Key',
 			width: 12,
+		},
+		{
+			type: 'checkbox',
+			id: 'autoApiKey',
+			label: 'Read the API key automatically when the field above is empty',
+			tooltip:
+				'Works only while the Syncthing web interface has no username and password. ' +
+				'The key is then stored here like a key you typed in yourself.',
+			width: 12,
+			default: DEFAULT_CONFIG.autoApiKey,
 		},
 		{
 			type: 'checkbox',

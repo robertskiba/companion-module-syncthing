@@ -13,12 +13,30 @@ machines, add one connection per machine.
 | GUI port                       | Port of the Syncthing web interface, `8384` by default            |
 | Poll interval                  | How often the module refreshes status and variables, in seconds   |
 | API key                        | Taken from the Syncthing GUI under Actions > Settings > General   |
+| Read the API key automatically | Fills the field above from an unprotected web interface           |
 | Use HTTPS                      | Enable if the Syncthing GUI is served over HTTPS                  |
 | Accept self-signed certificate | Needed for HTTPS, because Syncthing generates its own certificate |
 | Poll folder and device details | Turns the per-folder and per-device data on or off                |
 | Detail interval                | How often that per-folder and per-device data is refreshed        |
 
 The API key is stored as a secret, separately from the rest of the configuration.
+
+### Getting the API key without copying it
+
+Leave the API key empty and the module will try to read it from the instance itself, then store it
+as if you had typed it in. This only works while the Syncthing web interface has no username and
+password, which is its state after a fresh install on a trusted network. The module does exactly
+what the web interface does in your browser: it asks for the page once to receive a CSRF token,
+then reads the configuration with that token.
+
+If the interface asks for a login, or refuses the request, nothing is stored and the connection
+log says why. Enter the key by hand in that case, from Actions, Settings, General in the Syncthing
+web interface.
+
+Two caveats. This uses behaviour that is not part of the documented REST API, so a future
+Syncthing release could change it. And Syncthing rejects requests that arrive under an unexpected
+host name as a protection against DNS rebinding, so use an IP address if the lookup fails with a
+host check error. Untick the option if you would rather the module never tried.
 
 If Syncthing runs on a different machine than Companion, its GUI must listen on more than
 localhost. Set the GUI listen address to `0.0.0.0:8384` in the Syncthing settings.

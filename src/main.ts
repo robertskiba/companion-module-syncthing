@@ -17,6 +17,7 @@ import { UpdateActions, type ActionsSchema } from './actions.js'
 import { clusterInSync, localInSync, UpdateFeedbacks, type FeedbacksSchema } from './feedbacks.js'
 import { UpdatePresets } from './presets.js'
 import { SyncthingApi, SyncthingApiError } from './api.js'
+import { discoverApiKey } from './discover.js'
 import {
 	assignPrefixPairs,
 	createEmptyState,
@@ -64,6 +65,8 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	#lastDetailPoll = 0
 	/** Identifies the current folder and device list, to notice when definitions must be rebuilt. */
 	#listFingerprint = ''
+	/** Guards against two API key lookups running at once. */
+	#discoveryRunning = false
 	/** Remembers the last reported problem so the log is not flooded while an instance is down. */
 	#lastFailureMessage: string | undefined
 
@@ -150,7 +153,12 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		}
 		if (!this.secrets.apiKey) {
 			this.#setDisconnected()
-			this.updateStatus(InstanceStatus.BadConfig, 'No API key configured')
+			if (this.config.autoApiKey) {
+				this.updateStatus(InstanceStatus.Connecting, 'Looking for the API key')
+				void this.#tryDiscoverApiKey()
+			} else {
+				this.updateStatus(InstanceStatus.BadConfig, 'No API key configured')
+			}
 			return
 		}
 
@@ -165,6 +173,40 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 
 		this.updateStatus(InstanceStatus.Connecting)
 		this.#startPolling()
+	}
+
+	/**
+	 * Tries to read the API key from an instance whose web interface has no login, and stores it
+	 * as if it had been typed in. Only ever runs while the key field is empty.
+	 */
+	async #tryDiscoverApiKey(): Promise<void> {
+		if (this.#discoveryRunning) return
+		this.#discoveryRunning = true
+
+		try {
+			const key = await discoverApiKey({
+				host: this.config.host,
+				port: this.config.port,
+				useHttps: this.config.useHttps,
+				ignoreCertErrors: this.config.ignoreCertErrors,
+				timeout: REQUEST_TIMEOUT_MS,
+			})
+
+			this.log('info', `Read the API key from ${this.state.guiUrl} and saved it in the connection`)
+			this.secrets = { apiKey: key }
+			// Saving triggers configUpdated, which starts the connection with the key in place.
+			this.saveConfig(this.config, this.secrets)
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error)
+			this.log(
+				'warn',
+				`Could not read the API key automatically: ${reason}. ` +
+					'Enter it manually from the Syncthing web interface, under Actions, Settings, General.',
+			)
+			this.updateStatus(InstanceStatus.BadConfig, 'No API key configured')
+		} finally {
+			this.#discoveryRunning = false
+		}
 	}
 
 	#startPolling(): void {

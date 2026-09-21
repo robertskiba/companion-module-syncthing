@@ -9,6 +9,7 @@ export type ModuleConfig = {
 	pollDetails: boolean
 	detailInterval: number
 	autoApiKey: boolean
+	useEvents: boolean
 }
 
 /** Values stored separately from the config so they are not echoed back to the web UI. */
@@ -25,6 +26,7 @@ export const DEFAULT_CONFIG: ModuleConfig = {
 	pollDetails: true,
 	detailInterval: 10,
 	autoApiKey: true,
+	useEvents: true,
 }
 
 /** The base URL of the web interface for a given configuration. */
@@ -116,6 +118,16 @@ export function GetConfigFields(current?: Partial<ModuleConfig>): SomeCompanionC
 			default: DEFAULT_CONFIG.ignoreCertErrors,
 		},
 		{
+			type: 'checkbox',
+			id: 'useEvents',
+			label: 'Follow the Syncthing event stream',
+			tooltip:
+				'Keeps one long-lived request open so changes show up within milliseconds ' +
+				'instead of at the next poll. Turn it off to fall back to polling only.',
+			width: 12,
+			default: DEFAULT_CONFIG.useEvents,
+		},
+		{
 			type: 'static-text',
 			id: 'detail_info',
 			label: 'Folder and device details',
@@ -124,7 +136,9 @@ export function GetConfigFields(current?: Partial<ModuleConfig>): SomeCompanionC
 				'Per-folder and per-device variables need one extra request per folder and per device. ' +
 				'Syncthing describes the folder status call as expensive, so these run on their own, ' +
 				'slower interval. Turn them off if the instance holds very large folders and you only ' +
-				'need the overall status.',
+				'need the overall status. While the event stream is connected these numbers arrive ' +
+				'from events instead, and the interval below only acts as a safety net, at most ' +
+				'once every two minutes.',
 		},
 		{
 			type: 'checkbox',

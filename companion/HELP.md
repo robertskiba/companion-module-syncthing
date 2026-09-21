@@ -16,6 +16,7 @@ machines, add one connection per machine.
 | Read the API key automatically | Fills the field above from an unprotected web interface           |
 | Use HTTPS                      | Enable if the Syncthing GUI is served over HTTPS                  |
 | Accept self-signed certificate | Needed for HTTPS, because Syncthing generates its own certificate |
+| Follow the event stream        | Reacts to changes immediately instead of at the next poll         |
 | Poll folder and device details | Turns the per-folder and per-device data on or off                |
 | Detail interval                | How often that per-folder and per-device data is refreshed        |
 
@@ -44,6 +45,26 @@ localhost. Set the GUI listen address to `0.0.0.0:8384` in the Syncthing setting
 Details cost one request per folder and one per device, and Syncthing describes the folder status
 call as expensive on large folders. That is why they run on their own, slower interval, and can be
 switched off entirely if you only need the overall status.
+
+### How the module stays up to date
+
+Two mechanisms run side by side.
+
+**The event stream** keeps one request open to Syncthing, which answers the moment something
+happens. Folder state, transfer progress, pause and resume, and devices coming and going therefore
+show up on buttons within milliseconds. Only the event types this module needs are subscribed to,
+so the per-file chatter never reaches Companion.
+
+**Polling** is the floor underneath it. A short poll refreshes uptime, byte totals and the error
+list. The expensive per-folder call is where the event stream earns its keep: while events are
+flowing, folder numbers arrive in the events themselves, and the poll drops back to a safety net
+that runs at most once every two minutes.
+
+If the stream breaks, the module says so in the log once, retries every few seconds, and keeps
+polling meanwhile, so buttons stay correct at the polling rate. If Syncthing restarts, its event
+numbering starts over, which the module notices and answers by reading the whole state again.
+
+Turn the stream off to fall back to polling only.
 
 ### Are we in sync?
 
@@ -160,6 +181,8 @@ Adding folders and adding remote devices are not offered as actions. Those are s
 belong in the Syncthing web interface, where you can see what you are doing and confirm the device
 ID. They may be reconsidered if enough users ask for them.
 
-### Not yet implemented
+### Known limits
 
-The event stream, which would replace most of the polling with immediate updates.
+Syncthing buffers a limited number of events. If the module is disconnected for a long time while
+a great deal happens, some events are dropped. The periodic poll covers that case, so the state
+converges again rather than staying wrong.

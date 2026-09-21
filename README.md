@@ -29,6 +29,7 @@ exercise the REST client and the state helpers against a simulated Syncthing ser
 | `src/state.ts`     | Folder and device state, variable naming and completion maths       |
 | `src/config.ts`    | Connection settings shown in the Companion web UI                   |
 | `src/discover.ts`  | Reads the API key from an instance whose web interface has no login |
+| `src/events.ts`    | Long-polling event stream, with reconnect and restart detection     |
 | `src/actions.ts`   | Actions                                                             |
 | `src/feedbacks.ts` | Feedbacks                                                           |
 | `src/variables.ts` | Variable definitions and the uptime formatter                       |
@@ -40,7 +41,7 @@ exercise the REST client and the state helpers against a simulated Syncthing ser
 1. ~~Scaffold, connection, status and instance-wide variables~~ done
 2. ~~Per-folder and per-device variables, feedbacks and presets, driven by the live configuration~~ done
 3. ~~Per-folder and per-device actions: pause, resume, override, revert~~ done
-4. Event stream via `/rest/events` long polling, replacing most of the polling
+4. ~~Event stream via `/rest/events` long polling, replacing most of the polling~~ done
 5. Polish, real-world testing against several instances, then submission to the Bitfocus module list
 
 Deliberately out of scope: actions that add a folder or add a remote device. Those are setup steps

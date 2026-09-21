@@ -18,9 +18,12 @@ import { clusterInSync, localInSync, UpdateFeedbacks, type FeedbacksSchema } fro
 import { UpdatePresets } from './presets.js'
 import { SyncthingApi, SyncthingApiError } from './api.js'
 import { discoverApiKey } from './discover.js'
+import { EventStream, eventNumber, eventString, type SyncthingEvent } from './events.js'
 import {
 	assignPrefixPairs,
 	createEmptyState,
+	findDevice,
+	findFolder,
 	folderCompletion,
 	FOLDER_STATES,
 	type DeviceInfo,
@@ -49,6 +52,8 @@ export type ModuleSchema = {
 }
 
 const REQUEST_TIMEOUT_MS = 10_000
+/** Slowest the detail poll runs while the event stream is delivering changes. */
+const EVENT_FALLBACK_SECONDS = 120
 
 export { UpgradeScripts }
 
@@ -67,6 +72,13 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	#listFingerprint = ''
 	/** Guards against two API key lookups running at once. */
 	#discoveryRunning = false
+	/** The last successful poll, so events can republish without another round of requests. */
+	#lastPoll:
+		{ version: SystemVersion; status: SystemStatus; connections: SystemConnections; errors: SystemErrors } | undefined
+	#eventStream: EventStream | undefined
+	/** Devices whose completion needs re-reading after a FolderCompletion event. */
+	#devicesToRefresh = new Set<string>()
+	#refreshTimer: NodeJS.Timeout | undefined
 	/** Remembers the last reported problem so the log is not flooded while an instance is down. */
 	#lastFailureMessage: string | undefined
 
@@ -219,6 +231,7 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	}
 
 	#stopPolling(): void {
+		this.#stopEventStream()
 		if (this.#pollTimer) {
 			clearInterval(this.#pollTimer)
 			this.#pollTimer = undefined
@@ -257,12 +270,14 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 				this.#lastDetailPoll = Date.now()
 			}
 
-			this.#publish(version, status, connections, errors)
+			this.#lastPoll = { version, status, connections, errors }
+			this.#publish()
 
 			this.state.connected = true
 			this.#lastFailureMessage = undefined
 			this.updateStatus(InstanceStatus.Ok)
 			this.checkAllFeedbacks()
+			this.#startEventStream(api)
 		} catch (error) {
 			this.#reportFailure('Polling failed', error)
 		} finally {
@@ -270,10 +285,207 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		}
 	}
 
+	#startEventStream(api: SyncthingApi): void {
+		if (!this.config.useEvents || this.#eventStream) return
+
+		this.#eventStream = new EventStream({
+			api,
+			onEvents: async (events) => this.#handleEvents(events),
+			onRestart: async () => {
+				this.#lastDetailPoll = 0
+				await this.poll(true)
+			},
+			onConnectionChange: (connected) => {
+				this.log('debug', connected ? 'Event stream connected' : 'Event stream disconnected')
+			},
+			log: (level, message) => this.log(level, message),
+		})
+		this.#eventStream.start()
+	}
+
+	#stopEventStream(): void {
+		this.#eventStream?.stop()
+		this.#eventStream = undefined
+
+		if (this.#refreshTimer) {
+			clearTimeout(this.#refreshTimer)
+			this.#refreshTimer = undefined
+		}
+		this.#devicesToRefresh.clear()
+	}
+
+	/**
+	 * Applies a batch of events to the state and republishes.
+	 *
+	 * Folder events carry everything needed, so they are applied without any request. A device
+	 * completion event only covers one folder, so the affected device is re-read once per burst
+	 * instead of trying to add partial numbers together.
+	 */
+	async #handleEvents(events: SyncthingEvent[]): Promise<void> {
+		let listsChanged = false
+
+		for (const event of events) {
+			const data = event.data ?? {}
+
+			switch (event.type) {
+				case 'StateChanged': {
+					const folder = this.#folderFromEvent(data)
+					const to = eventString(data, 'to')
+					if (folder && to) folder.state = normaliseFolderState(to)
+					break
+				}
+
+				case 'FolderSummary': {
+					const folder = this.#folderFromEvent(data)
+					const summary = data.summary
+					if (folder && typeof summary === 'object' && summary !== null) {
+						this.#applySummary(folder, summary as Record<string, unknown>)
+					}
+					break
+				}
+
+				case 'FolderCompletion': {
+					const device = eventString(data, 'device')
+					if (device) this.#scheduleDeviceRefresh(device)
+					break
+				}
+
+				case 'FolderPaused':
+				case 'FolderResumed': {
+					const folder = this.#folderFromEvent(data)
+					if (folder) {
+						folder.paused = event.type === 'FolderPaused'
+						if (folder.paused) folder.state = 'paused'
+					}
+					break
+				}
+
+				case 'FolderErrors': {
+					const folder = this.#folderFromEvent(data)
+					const errors = data.errors
+					if (folder && Array.isArray(errors)) folder.pullErrors = errors.length
+					break
+				}
+
+				case 'DeviceConnected': {
+					const device = findDevice(this.state, eventString(data, 'id', 'device') ?? '')
+					if (device) {
+						device.connected = true
+						device.address = eventString(data, 'addr') ?? device.address
+						device.clientVersion = eventString(data, 'clientVersion') ?? device.clientVersion
+					}
+					break
+				}
+
+				case 'DeviceDisconnected': {
+					const device = findDevice(this.state, eventString(data, 'id', 'device') ?? '')
+					if (device) {
+						device.connected = false
+						device.address = ''
+					}
+					break
+				}
+
+				case 'DevicePaused':
+				case 'DeviceResumed': {
+					const device = findDevice(this.state, eventString(data, 'device', 'id') ?? '')
+					if (device) {
+						device.paused = event.type === 'DevicePaused'
+						if (device.paused) device.connected = false
+					}
+					break
+				}
+
+				case 'ConfigSaved':
+					// The folder and device lists may have changed, which needs a full re-read.
+					listsChanged = true
+					break
+
+				default:
+					break
+			}
+		}
+
+		if (listsChanged) {
+			this.#lastDetailPoll = 0
+			await this.poll(true)
+			return
+		}
+
+		this.#publish()
+		this.checkAllFeedbacks()
+	}
+
+	/** Looks up the folder an event refers to, allowing for the differing key names. */
+	#folderFromEvent(data: Record<string, unknown>) {
+		const id = eventString(data, 'folder', 'id')
+		return id ? findFolder(this.state, id) : undefined
+	}
+
+	/** Copies the parts of a folder summary this module tracks. */
+	#applySummary(folder: FolderInfo, summary: Record<string, unknown>): void {
+		const state = eventString(summary, 'state')
+		if (state) folder.state = normaliseFolderState(state)
+
+		folder.globalBytes = eventNumber(summary, 'globalBytes') ?? folder.globalBytes
+		folder.localBytes = eventNumber(summary, 'localBytes') ?? folder.localBytes
+		folder.inSyncBytes = eventNumber(summary, 'inSyncBytes') ?? folder.inSyncBytes
+		folder.needBytes = eventNumber(summary, 'needBytes') ?? folder.needBytes
+		folder.needItems = eventNumber(summary, 'needTotalItems') ?? folder.needItems
+		folder.pullErrors = eventNumber(summary, 'pullErrors') ?? folder.pullErrors
+		folder.receiveOnlyChangedFiles = eventNumber(summary, 'receiveOnlyChangedFiles') ?? folder.receiveOnlyChangedFiles
+		folder.completion = folderCompletion(folder.globalBytes, folder.needBytes, folder.needItems)
+
+		if (folder.paused) folder.state = 'paused'
+	}
+
+	/** Collects devices to re-read, then fetches them once the burst of events has settled. */
+	#scheduleDeviceRefresh(deviceId: string): void {
+		if (!findDevice(this.state, deviceId)) return
+		this.#devicesToRefresh.add(deviceId)
+
+		if (this.#refreshTimer) return
+		this.#refreshTimer = setTimeout(() => {
+			this.#refreshTimer = undefined
+			void this.#refreshDevices()
+		}, 500)
+	}
+
+	async #refreshDevices(): Promise<void> {
+		const api = this.#api
+		const ids = [...this.#devicesToRefresh]
+		this.#devicesToRefresh.clear()
+		if (!api || ids.length === 0) return
+
+		await Promise.all(
+			ids.map(async (id) => {
+				const device = findDevice(this.state, id)
+				if (!device || device.paused) return
+				try {
+					const completion = await api.get<DbCompletion>('/rest/db/completion', { device: id })
+					device.completion = Math.round(completion.completion * 10) / 10
+					device.needBytes = completion.needBytes
+					device.needItems = completion.needItems
+				} catch (error) {
+					this.log('debug', `Could not refresh completion of ${device.name}: ${describe(error)}`)
+				}
+			}),
+		)
+
+		this.#publish()
+		this.checkAllFeedbacks()
+	}
+
 	#shouldPollDetails(force: boolean): boolean {
 		if (!this.config.pollDetails) return false
 		if (force || this.#lastDetailPoll === 0) return true
-		return Date.now() - this.#lastDetailPoll >= Math.max(1, this.config.detailInterval) * 1000
+
+		// While events are flowing, folder detail arrives on its own, so the poll only has to
+		// act as a safety net in case an event was missed.
+		const configured = Math.max(1, this.config.detailInterval)
+		const seconds = this.#eventStream?.connected ? Math.max(configured, EVENT_FALLBACK_SECONDS) : configured
+
+		return Date.now() - this.#lastDetailPoll >= seconds * 1000
 	}
 
 	/**
@@ -417,7 +629,17 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		])
 	}
 
-	#publish(version: SystemVersion, status: SystemStatus, connections: SystemConnections, errors: SystemErrors): void {
+	/**
+	 * Writes the whole variable set from the current state.
+	 *
+	 * The instance-wide values come from the last poll, which is kept so that an event can
+	 * republish everything without going back to the network.
+	 */
+	#publish(): void {
+		const poll = this.#lastPoll
+		if (!poll) return
+
+		const { version, status, connections, errors } = poll
 		const myId = status.myID
 		const { folders, devices } = this.state
 

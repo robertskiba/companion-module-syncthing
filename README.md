@@ -5,7 +5,23 @@ A [Bitfocus Companion](https://bitfocus.io/companion) module for [Syncthing](htt
 It talks to the Syncthing REST API to show whether an instance is reachable, how many devices are
 connected and whether any errors are pending, and it can trigger a rescan, a restart or a shutdown.
 
-See [HELP.md](./companion/HELP.md) for user documentation and [LICENSE](./LICENSE) for the license.
+See [HELP.md](./companion/HELP.md) for user documentation, [CHANGELOG.md](./CHANGELOG.md) for what
+changed when, and [LICENSE](./LICENSE) for the license.
+
+## Versioning
+
+Everything below 1.0.0 is a pre-release that has not yet been proven against real Syncthing
+instances. Each round of changes raises the patch number. Version 1.0.0 will be the first release
+submitted to the Bitfocus module list, after real-world testing.
+
+Build a pre-release package with the flag that marks it as one:
+
+```
+yarn package --prerelease
+```
+
+Without the flag the build tool clears the pre-release marker in the manifest, whatever the file
+says.
 
 ## Getting started
 

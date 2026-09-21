@@ -5,7 +5,7 @@
 	"name": "syncthing",
 	"shortname": "Syncthing",
 	"description": "Monitor and control a Syncthing instance via its REST API",
-	"version": "0.0.0",
+	"version": "0.1.0-alpha",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-syncthing.git",
 	"bugs": "https://github.com/bitfocus/companion-module-syncthing/issues",
@@ -24,5 +24,6 @@
 	"legacyIds": [],
 	"manufacturer": "Syncthing Foundation",
 	"products": ["Syncthing"],
-	"keywords": ["sync", "file-sync", "backup", "storage", "rest"]
+	"keywords": ["sync", "file-sync", "backup", "storage", "rest"],
+	"isPrerelease": true
 }

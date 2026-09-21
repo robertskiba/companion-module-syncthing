@@ -19,7 +19,7 @@ import { UpdatePresets } from './presets.js'
 import { SyncthingApi, SyncthingApiError } from './api.js'
 import { discoverApiKey } from './discover.js'
 import { EventStream, eventNumber, eventString, type SyncthingEvent } from './events.js'
-import { createDnsResolver, createHttpProbe, LanScanner, localIpv4Addresses, type LanHost } from './lanscan.js'
+import { createHttpProbe, createNameResolver, LanScanner, localIpv4Addresses, type LanHost } from './lanscan.js'
 import {
 	assignPrefixPairs,
 	createEmptyState,
@@ -145,7 +145,7 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		this.#scanner = new LanScanner({
 			createSocket: () => this.createSharedUdpSocket('udp4'),
 			probe: createHttpProbe(this.config.port || 8384, this.config.ignoreCertErrors),
-			resolveName: createDnsResolver(),
+			resolveName: createNameResolver(),
 			ownAddresses: localIpv4Addresses,
 			onChange: (hosts) => {
 				this.lanHosts = hosts

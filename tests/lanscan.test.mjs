@@ -365,19 +365,55 @@ console.log('7. the instance on this machine is searched for, not assumed')
 	scanner.stop()
 }
 
-console.log('8. a port that cannot be bound is reported, not crashed on')
+console.log('8. a taken port is reopened with address reuse')
 {
-	const socket = new FakeSocket()
+	// Syncthing on the same machine holds the port, so the shared socket is refused.
+	const shared = new FakeSocket()
+	const fallback = new FakeSocket()
 	const logs = []
 	const scanner = new LanScanner({
-		createSocket: () => socket,
+		createSocket: () => shared,
+		createFallbackSocket: () => fallback,
 		probe: async (a) => (a === LOCAL_ADDRESS ? undefined : 'http'),
+		ownAddresses: () => [],
 		onChange: () => {},
 		log: (level, message) => logs.push(`${level}: ${message}`),
 	})
 	scanner.start()
 
-	socket.emit('error', new Error('bind EADDRINUSE 0.0.0.0:21027'))
+	shared.emit('error', new Error('bind EADDRINUSE 0.0.0.0:21027'))
+	await new Promise((r) => setTimeout(r, 50))
+
+	check('the refused socket is released', shared.closed === true)
+	check('the port is opened again', fallback.boundPort === DISCOVERY_PORT, String(fallback.boundPort))
+	check('nothing is reported as broken yet', !logs.some((l) => l.startsWith('warn:')), JSON.stringify(logs))
+
+	fallback.emit('message', announcement({ id: deviceId }), { address: '192.168.20.102', port: 21027 })
+	await waitFor(() => scanner.hosts.length >= 1, 'a host on the reused socket')
+	check('discovery works through it', scanner.hosts[0]?.address === '192.168.20.102')
+
+	scanner.stop()
+	check('stopping closes the second socket', fallback.closed === true)
+}
+
+console.log('9. a port that cannot be opened at all is reported, not crashed on')
+{
+	const shared = new FakeSocket()
+	const fallback = new FakeSocket()
+	const logs = []
+	const scanner = new LanScanner({
+		createSocket: () => shared,
+		createFallbackSocket: () => fallback,
+		probe: async () => undefined,
+		ownAddresses: () => [],
+		onChange: () => {},
+		log: (level, message) => logs.push(`${level}: ${message}`),
+	})
+	scanner.start()
+
+	shared.emit('error', new Error('bind EADDRINUSE 0.0.0.0:21027'))
+	await new Promise((r) => setTimeout(r, 50))
+	fallback.emit('error', new Error('bind EADDRINUSE 0.0.0.0:21027'))
 	await new Promise((r) => setTimeout(r, 50))
 
 	check(
@@ -386,11 +422,11 @@ console.log('8. a port that cannot be bound is reported, not crashed on')
 		JSON.stringify(logs),
 	)
 	check(
-		'the message says discovery is off',
-		logs.some((l) => /discovery is off/i.test(l)),
+		'the message says instances will not be found',
+		logs.some((l) => /will not be found/i.test(l)),
 		JSON.stringify(logs),
 	)
-	check('the socket is released', socket.closed === true)
+	check('the socket is released', fallback.closed === true)
 	check('no hosts are reported', scanner.hosts.length === 0)
 }
 

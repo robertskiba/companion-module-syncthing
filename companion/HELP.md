@@ -40,8 +40,19 @@ answer are offered. That matters because Syncthing binds its web interface to lo
 somebody changes that setting, so an instance can be perfectly healthy and still be unusable from
 another machine.
 
-Each entry shows the address, the name the network resolves it to when there is one, and the first
-block of its device ID, which is the same short form Syncthing shows.
+Each entry shows the address, the name of the machine where one can be found, and the first block
+of its Syncthing device ID. That block is a short form of the device ID, not a computer name: a
+machine called DATEV11-PC can perfectly well show a device ID starting with DAZEXXE. You can check
+it against Actions, Show ID in the Syncthing web interface.
+
+Two ways are tried to put a name to an address. Reverse DNS first, which on a small network
+usually answers nothing because nothing writes those records. Then the machine is asked directly,
+the way Windows machines find each other, which is what normally produces the familiar computer
+name.
+
+If Syncthing also runs on the Companion machine, it already holds the discovery port. The module
+notices and opens the port again in a mode that allows sharing, so both can listen. Some systems
+refuse even that, and the log then says that instances will not be found.
 
 Two things to expect. Announcements arrive every 30 to 60 seconds, so the list can be empty for a
 minute after opening the page; reopen it and the entries appear. And the instance on the Companion

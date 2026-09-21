@@ -17,6 +17,25 @@ been tested against real Syncthing instances.
 
 Nothing yet.
 
+## [0.1.3] - 2026-09-21
+
+### Fixed
+
+- Network discovery found nothing on a machine that also runs Syncthing. Syncthing holds the
+  discovery port for its own use, and the shared socket Companion hands out cannot bind alongside
+  it. The port is now opened again in a mode that allows sharing when the first attempt is
+  refused, so both can listen. Where the system refuses even that, the log says so plainly.
+
+### Added
+
+- The name of a found machine is now also asked for directly, the way Windows machines find each
+  other, when reverse DNS has nothing to say. On a small network that is the normal case, and this
+  is what turns a bare address into a recognisable computer name.
+
+### Changed
+
+- Entries without a device ID no longer show an empty "device" label.
+
 ## [0.1.2] - 2026-09-21
 
 ### Changed

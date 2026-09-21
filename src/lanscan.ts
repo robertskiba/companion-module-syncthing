@@ -1,8 +1,10 @@
+import dgram from 'node:dgram'
 import { reverse as dnsReverse } from 'node:dns/promises'
 import { networkInterfaces } from 'node:os'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import type { LogLevel, SharedUdpSocket } from '@companion-module/base'
+import { queryNetbiosName } from './netbios.js'
 
 /**
  * Finds Syncthing instances on the local network.
@@ -246,9 +248,74 @@ export function createDnsResolver(timeout = 1500): (address: string) => Promise<
 	}
 }
 
+/**
+ * Builds a name lookup that tries reverse DNS first and then asks the machine itself.
+ *
+ * On a small network nothing writes reverse DNS records, so the first attempt usually comes back
+ * empty. Windows machines answer a NetBIOS query with their own name, which is how they appear to
+ * each other in the network neighbourhood, and that is the name somebody recognises.
+ */
+export function createNameResolver(dnsTimeout = 1500, netbiosTimeout = 1200) {
+	const viaDns = createDnsResolver(dnsTimeout)
+
+	return async (address: string): Promise<string | undefined> => {
+		const fromDns = await viaDns(address)
+		if (fromDns) return fromDns
+
+		try {
+			return await queryNetbiosName(address, netbiosTimeout)
+		} catch {
+			return undefined
+		}
+	}
+}
+
+/** The little bit of a UDP socket the scanner needs, so the source can be swapped. */
+export interface DiscoverySocket {
+	on(event: 'message', listener: (message: Buffer, remote: { address: string }) => void): void
+	on(event: 'error', listener: (error: Error) => void): void
+	bind(port: number, address?: string, callback?: () => void): void
+	close(callback?: () => void): void
+}
+
+/**
+ * Opens the discovery port directly, allowing the address to be reused.
+ *
+ * Syncthing holds the same port for its own discovery, so on a machine that runs both, a plain
+ * bind is refused. Asking for address reuse lets the two listen side by side. Some systems still
+ * refuse it, in which case the caller reports that discovery is unavailable.
+ */
+export function createReusableSocket(): DiscoverySocket {
+	return asDiscoverySocket(dgram.createSocket({ type: 'udp4', reuseAddr: true }))
+}
+
+/** Narrows any event-emitting UDP socket to the handful of members the scanner uses. */
+function asDiscoverySocket(socket: {
+	on(event: string, listener: (...args: never[]) => void): unknown
+	bind(port: number, address?: string, callback?: () => void): unknown
+	close(callback?: () => void): unknown
+}): DiscoverySocket {
+	return {
+		on(event: string, listener: (...args: never[]) => void): void {
+			socket.on(event, listener)
+		},
+		bind(port: number, address?: string, callback?: () => void): void {
+			socket.bind(port, address, callback)
+		},
+		close(callback?: () => void): void {
+			socket.close(callback)
+		},
+	}
+}
+
 export interface LanScannerOptions {
 	/** Creates the shared UDP socket. Companion hosts it, so several connections can listen. */
 	createSocket: () => SharedUdpSocket
+	/**
+	 * Opens the port directly when the shared socket cannot. Defaults to a socket that allows
+	 * address reuse, which is what lets this run alongside a Syncthing on the same machine.
+	 */
+	createFallbackSocket?: () => DiscoverySocket
 	/**
 	 * Checks whether a host serves a Syncthing web interface.
 	 * Resolves with the scheme that answered, or undefined when nothing did.
@@ -266,7 +333,9 @@ export interface LanScannerOptions {
 /** Listens for announcements and keeps a list of instances whose web interface answers. */
 export class LanScanner {
 	#options: LanScannerOptions
-	#socket: SharedUdpSocket | undefined
+	#socket: DiscoverySocket | undefined
+	/** Set once the shared socket has been given up on, so the fallback is only tried once. */
+	#usedFallback = false
 	#hosts = new Map<string, LanHost>()
 	/** Addresses currently being probed, so a burst of announcements causes one probe. */
 	#probing = new Set<string>()
@@ -299,34 +368,74 @@ export class LanScanner {
 		void this.#checkLocal()
 		this.#localTimer = setInterval(() => void this.#checkLocal(), LOCAL_PROBE_INTERVAL_MS)
 
+		this.#usedFallback = false
+		this.#listen(false)
+	}
+
+	/**
+	 * Opens the discovery port, first through Companion's shared socket and then, if that is
+	 * refused, directly with address reuse.
+	 *
+	 * The shared socket is the sanctioned way for several connections to share a fixed port, but
+	 * it cannot bind alongside the Syncthing running on the same machine, which holds that port
+	 * for its own discovery. The direct socket asks for address reuse and can.
+	 */
+	#listen(useFallback: boolean): void {
 		try {
-			const socket = this.#options.createSocket()
+			const socket: DiscoverySocket = useFallback
+				? (this.#options.createFallbackSocket ?? createReusableSocket)()
+				: asDiscoverySocket(this.#options.createSocket())
 			this.#socket = socket
 
 			socket.on('message', (message, remote) => {
 				this.#handlePacket(message, remote.address)
 			})
-			socket.on('error', (error: Error) => {
-				this.#options.log(
-					'warn',
-					`Cannot listen for Syncthing announcements on port ${DISCOVERY_PORT}: ${error.message}. ` +
-						'Network discovery is off; enter the address by hand.',
-				)
-				this.stop()
-			})
+			socket.on('error', (error: Error) => this.#handleSocketError(error, useFallback))
 
 			// No address is given, so the socket listens on every IPv4 interface of this machine.
 			socket.bind(DISCOVERY_PORT, undefined, () => {
 				this.#options.log(
 					'debug',
-					`Listening for Syncthing announcements on port ${DISCOVERY_PORT}, all IPv4 interfaces`,
+					`Listening for Syncthing announcements on port ${DISCOVERY_PORT}, all IPv4 interfaces` +
+						(useFallback ? ', with address reuse' : ''),
 				)
 			})
 		} catch (error) {
-			this.#running = false
-			const reason = error instanceof Error ? error.message : String(error)
-			this.#options.log('warn', `Could not start network discovery: ${reason}`)
+			this.#handleSocketError(error instanceof Error ? error : new Error(String(error)), useFallback)
 		}
+	}
+
+	#handleSocketError(error: Error, wasFallback: boolean): void {
+		if (!this.#running) return
+
+		if (!wasFallback && !this.#usedFallback) {
+			// Most likely the Syncthing on this machine already holds the port.
+			this.#usedFallback = true
+			this.#options.log(
+				'debug',
+				`Port ${DISCOVERY_PORT} is taken (${error.message}), opening it again with address reuse`,
+			)
+			this.#closeSocket()
+			this.#listen(true)
+			return
+		}
+
+		this.#options.log(
+			'warn',
+			`Cannot listen for Syncthing announcements on port ${DISCOVERY_PORT}: ${error.message}. ` +
+				'Instances on the network will not be found; enter the address by hand.',
+		)
+		this.stop()
+	}
+
+	#closeSocket(): void {
+		if (!this.#socket) return
+		try {
+			this.#socket.close()
+		} catch {
+			// Closing a socket that never bound is not worth reporting.
+		}
+		this.#socket = undefined
 	}
 
 	stop(): void {
@@ -338,14 +447,7 @@ export class LanScanner {
 			this.#localTimer = undefined
 		}
 
-		if (this.#socket) {
-			try {
-				this.#socket.close()
-			} catch {
-				// Closing a socket that never bound is not worth reporting.
-			}
-			this.#socket = undefined
-		}
+		this.#closeSocket()
 	}
 
 	/** Forgets which hosts failed the probe, so a changed setup is picked up again. */

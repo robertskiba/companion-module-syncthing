@@ -1,14 +1,37 @@
-import { InstanceBase, InstanceStatus, type SomeCompanionConfigField } from '@companion-module/base'
+import {
+	InstanceBase,
+	InstanceStatus,
+	type CompanionVariableValues,
+	type SomeCompanionConfigField,
+} from '@companion-module/base'
 import { DEFAULT_CONFIG, GetConfigFields, type ModuleConfig, type ModuleSecrets } from './config.js'
-import { formatUptime, UpdateVariableDefinitions, type VariablesSchema } from './variables.js'
+import {
+	deviceVariableValues,
+	folderVariableValues,
+	formatUptime,
+	UpdateVariableDefinitions,
+	type VariablesSchema,
+} from './variables.js'
 import { UpgradeScripts } from './upgrades.js'
 import { UpdateActions, type ActionsSchema } from './actions.js'
-import { UpdateFeedbacks, type FeedbacksSchema } from './feedbacks.js'
+import { clusterInSync, localInSync, UpdateFeedbacks, type FeedbacksSchema } from './feedbacks.js'
 import { UpdatePresets } from './presets.js'
 import { SyncthingApi, SyncthingApiError } from './api.js'
+import {
+	assignUniquePrefixes,
+	createEmptyState,
+	folderCompletion,
+	FOLDER_STATES,
+	type DeviceInfo,
+	type FolderInfo,
+	type FolderState,
+	type ModuleState,
+} from './state.js'
 import type {
 	ConfigDevice,
 	ConfigFolder,
+	DbCompletion,
+	DbStatus,
 	SystemConnections,
 	SystemErrors,
 	SystemStatus,
@@ -23,14 +46,6 @@ export type ModuleSchema = {
 	variables: VariablesSchema
 }
 
-/** Everything the feedbacks need to answer without going to the network. */
-export interface ModuleState {
-	connected: boolean
-	errorCount: number
-	devicesConnected: number
-	devicesTotal: number
-}
-
 const REQUEST_TIMEOUT_MS = 10_000
 
 export { UpgradeScripts }
@@ -39,16 +54,15 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	config: ModuleConfig = { ...DEFAULT_CONFIG }
 	secrets: ModuleSecrets = { apiKey: '' }
 
-	state: ModuleState = {
-		connected: false,
-		errorCount: 0,
-		devicesConnected: 0,
-		devicesTotal: 0,
-	}
+	state: ModuleState = createEmptyState()
 
 	#api: SyncthingApi | undefined
 	#pollTimer: NodeJS.Timeout | undefined
 	#pollInFlight = false
+	/** Timestamp of the last successful detail poll, so details can run slower than the base poll. */
+	#lastDetailPoll = 0
+	/** Identifies the current folder and device list, to notice when definitions must be rebuilt. */
+	#listFingerprint = ''
 	/** Remembers the last reported problem so the log is not flooded while an instance is down. */
 	#lastFailureMessage: string | undefined
 
@@ -124,6 +138,7 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		this.#stopPolling()
 		this.#api = undefined
 		this.#lastFailureMessage = undefined
+		this.#lastDetailPoll = 0
 
 		if (!this.config.host) {
 			this.#setDisconnected()
@@ -168,14 +183,16 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	/**
 	 * Reads the current state from Syncthing and publishes it as variables and feedbacks.
 	 * Overlapping calls are skipped, so a slow instance cannot pile up requests.
+	 *
+	 * @param forceDetails Fetch folder and device details regardless of the detail interval.
 	 */
-	async poll(): Promise<void> {
+	async poll(forceDetails = false): Promise<void> {
 		const api = this.#api
 		if (!api || this.#pollInFlight) return
 
 		this.#pollInFlight = true
 		try {
-			const [version, status, connections, errors, devices, folders] = await Promise.all([
+			const [version, status, connections, errors, configDevices, configFolders] = await Promise.all([
 				api.get<SystemVersion>('/rest/system/version'),
 				api.get<SystemStatus>('/rest/system/status'),
 				api.get<SystemConnections>('/rest/system/connections'),
@@ -188,12 +205,19 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 				this.log('info', `Connected to Syncthing ${version.version} at ${api.baseUrl}`)
 			}
 
-			this.#publish(version, status, connections, errors, devices, folders)
+			this.#rebuildLists(status.myID, configDevices, configFolders, connections)
+
+			if (this.#shouldPollDetails(forceDetails)) {
+				await this.#pollDetails(api)
+				this.#lastDetailPoll = Date.now()
+			}
+
+			this.#publish(version, status, connections, errors)
 
 			this.state.connected = true
 			this.#lastFailureMessage = undefined
 			this.updateStatus(InstanceStatus.Ok)
-			this.checkFeedbacks('connected', 'has_errors')
+			this.checkAllFeedbacks()
 		} catch (error) {
 			this.#reportFailure('Polling failed', error)
 		} finally {
@@ -201,34 +225,152 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		}
 	}
 
-	#publish(
-		version: SystemVersion,
-		status: SystemStatus,
-		connections: SystemConnections,
-		errors: SystemErrors,
-		devices: ConfigDevice[],
-		folders: ConfigFolder[],
-	): void {
-		const myId = status.myID
-		// The configuration lists this device alongside the remote ones, so filter it out.
-		const remoteDevices = devices.filter((device) => device.deviceID !== myId)
-		const ownDevice = devices.find((device) => device.deviceID === myId)
+	#shouldPollDetails(force: boolean): boolean {
+		if (!this.config.pollDetails) return false
+		if (force || this.#lastDetailPoll === 0) return true
+		return Date.now() - this.#lastDetailPoll >= Math.max(1, this.config.detailInterval) * 1000
+	}
 
-		let devicesConnected = 0
-		for (const device of remoteDevices) {
-			if (connections.connections[device.deviceID]?.connected) devicesConnected++
+	/**
+	 * Replaces the folder and device lists from the configuration, keeping any detail values
+	 * already gathered for entries that are still present.
+	 */
+	#rebuildLists(
+		myId: string,
+		configDevices: ConfigDevice[],
+		configFolders: ConfigFolder[],
+		connections: SystemConnections,
+	): void {
+		// Syncthing lists this device alongside the remote ones, so filter it out.
+		const remotes = configDevices.filter((device) => device.deviceID !== myId)
+		this.state.ownDeviceName = configDevices.find((device) => device.deviceID === myId)?.name ?? ''
+
+		const devicePrefixes = assignUniquePrefixes(remotes.map((device) => device.name || device.deviceID))
+		const devices: DeviceInfo[] = remotes.map((device, index) => {
+			const previous = this.state.devices.find((entry) => entry.id === device.deviceID)
+			const connection = connections.connections[device.deviceID]
+			return {
+				id: device.deviceID,
+				name: device.name || device.deviceID,
+				varPrefix: devicePrefixes[index] ?? device.deviceID,
+				paused: device.paused,
+				connected: connection?.connected ?? false,
+				address: connection?.address ?? '',
+				clientVersion: connection?.clientVersion ?? '',
+				completion: previous?.completion ?? 0,
+				needBytes: previous?.needBytes ?? 0,
+				needItems: previous?.needItems ?? 0,
+			}
+		})
+
+		const folderPrefixes = assignUniquePrefixes(configFolders.map((folder) => folder.id))
+		const folders: FolderInfo[] = configFolders.map((folder, index) => {
+			const previous = this.state.folders.find((entry) => entry.id === folder.id)
+			return {
+				id: folder.id,
+				label: folder.label,
+				varPrefix: folderPrefixes[index] ?? folder.id,
+				type: folder.type,
+				paused: folder.paused,
+				state: folder.paused ? 'paused' : (previous?.state ?? 'unknown'),
+				completion: previous?.completion ?? 0,
+				globalBytes: previous?.globalBytes ?? 0,
+				localBytes: previous?.localBytes ?? 0,
+				inSyncBytes: previous?.inSyncBytes ?? 0,
+				needBytes: previous?.needBytes ?? 0,
+				needItems: previous?.needItems ?? 0,
+				pullErrors: previous?.pullErrors ?? 0,
+				receiveOnlyChangedFiles: previous?.receiveOnlyChangedFiles ?? 0,
+			}
+		})
+
+		this.state.devices = devices
+		this.state.folders = folders
+
+		// Variable definitions and dropdown choices only change when the lists themselves change.
+		const fingerprint = JSON.stringify([
+			folders.map((folder) => [folder.id, folder.varPrefix, folder.label]),
+			devices.map((device) => [device.id, device.varPrefix, device.name]),
+		])
+		if (fingerprint !== this.#listFingerprint) {
+			this.#listFingerprint = fingerprint
+			this.updateVariableDefinitions()
+			this.updateActions()
+			this.updateFeedbacks()
+			this.updatePresets()
+			this.log('debug', `Configuration changed: ${folders.length} folder(s), ${devices.length} remote device(s)`)
 		}
-		const devicesPaused = remoteDevices.filter((device) => device.paused).length
+	}
+
+	/**
+	 * Fetches per-folder status and per-device completion.
+	 * Failures of single entries are tolerated, so one broken folder does not blank everything.
+	 */
+	async #pollDetails(api: SyncthingApi): Promise<void> {
+		await Promise.all([
+			...this.state.folders.map(async (folder) => {
+				if (folder.paused) {
+					// A paused folder reports nothing useful and the call is expensive, so skip it.
+					folder.state = 'paused'
+					return
+				}
+				try {
+					const status = await api.get<DbStatus>('/rest/db/status', { folder: folder.id })
+					folder.state = normaliseFolderState(status.state)
+					folder.globalBytes = status.globalBytes
+					folder.localBytes = status.localBytes
+					folder.inSyncBytes = status.inSyncBytes
+					folder.needBytes = status.needBytes
+					folder.needItems = status.needTotalItems
+					folder.pullErrors = status.pullErrors
+					folder.receiveOnlyChangedFiles = status.receiveOnlyChangedFiles
+					folder.completion = folderCompletion(status.globalBytes, status.needBytes, status.needTotalItems)
+				} catch (error) {
+					this.log('warn', `Could not read status of folder ${folder.id}: ${describe(error)}`)
+					folder.state = 'unknown'
+				}
+			}),
+
+			...this.state.devices.map(async (device) => {
+				if (device.paused) {
+					device.completion = 0
+					device.needBytes = 0
+					device.needItems = 0
+					return
+				}
+				try {
+					const completion = await api.get<DbCompletion>('/rest/db/completion', { device: device.id })
+					device.completion = Math.round(completion.completion * 10) / 10
+					device.needBytes = completion.needBytes
+					device.needItems = completion.needItems
+				} catch (error) {
+					this.log('warn', `Could not read completion of device ${device.name}: ${describe(error)}`)
+				}
+			}),
+		])
+	}
+
+	#publish(version: SystemVersion, status: SystemStatus, connections: SystemConnections, errors: SystemErrors): void {
+		const myId = status.myID
+		const { folders, devices } = this.state
+
+		const devicesConnected = devices.filter((device) => device.connected).length
+		const devicesPaused = devices.filter((device) => device.paused).length
+		const devicesOutOfSync = devices.filter((device) => !device.paused && device.completion < 100).length
 		const foldersPaused = folders.filter((folder) => folder.paused).length
+		const foldersSyncing = folders.filter((folder) => folder.state === 'syncing').length
+		const foldersOutOfSync = folders.filter((folder) => folder.needBytes > 0 || folder.needItems > 0).length
 
 		const errorList = errors.errors ?? []
 		const lastError = errorList.length > 0 ? (errorList[errorList.length - 1]?.message ?? '') : ''
-
 		this.state.errorCount = errorList.length
-		this.state.devicesConnected = devicesConnected
-		this.state.devicesTotal = remoteDevices.length
 
-		this.setVariableValues({
+		const globalBytes = folders.reduce((sum, folder) => sum + folder.globalBytes, 0)
+		const needBytes = folders.reduce((sum, folder) => sum + folder.needBytes, 0)
+		const needItems = folders.reduce((sum, folder) => sum + folder.needItems, 0)
+		this.state.completion = folderCompletion(globalBytes, needBytes, needItems)
+
+		const values: CompanionVariableValues = {
 			connected: 'true',
 			version: version.version,
 			version_long: version.longVersion,
@@ -236,24 +378,35 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			arch: version.arch,
 			my_id: myId,
 			my_id_short: myId.split('-')[0] ?? myId,
-			device_name: ownDevice?.name ?? '',
+			device_name: this.state.ownDeviceName,
 			uptime_seconds: status.uptime,
 			uptime: formatUptime(status.uptime),
-			devices_total: remoteDevices.length,
+			devices_total: devices.length,
 			devices_connected: devicesConnected,
 			devices_paused: devicesPaused,
+			devices_out_of_sync: devicesOutOfSync,
 			folders_total: folders.length,
 			folders_paused: foldersPaused,
+			folders_syncing: foldersSyncing,
+			folders_out_of_sync: foldersOutOfSync,
+			completion: String(this.state.completion),
+			in_sync: String(localInSync(this.state)),
+			all_in_sync: String(clusterInSync(this.state, false)),
 			error_count: errorList.length,
 			last_error: lastError,
 			bytes_in_total: connections.total.inBytesTotal,
 			bytes_out_total: connections.total.outBytesTotal,
-		})
+		}
+
+		for (const folder of folders) Object.assign(values, folderVariableValues(folder))
+		for (const device of devices) Object.assign(values, deviceVariableValues(device))
+
+		this.setVariableValues(values)
 	}
 
 	/** Reports an error once, then stays quiet until the cause changes or the connection recovers. */
 	#reportFailure(context: string, error: unknown): void {
-		const message = error instanceof Error ? error.message : String(error)
+		const message = describe(error)
 		const full = `${context}: ${message}`
 
 		if (this.#lastFailureMessage !== full) {
@@ -273,11 +426,23 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	#setDisconnected(): void {
 		this.state.connected = false
 		this.state.errorCount = 0
-		this.state.devicesConnected = 0
+		for (const device of this.state.devices) device.connected = false
 		this.setVariableValues({
 			connected: 'false',
 			devices_connected: 0,
+			in_sync: 'false',
+			all_in_sync: 'false',
 		})
-		this.checkFeedbacks('connected', 'has_errors')
+		this.checkAllFeedbacks()
 	}
+}
+
+function describe(error: unknown): string {
+	return error instanceof Error ? error.message : String(error)
+}
+
+/** Maps whatever Syncthing reports into the set of states this module knows. */
+function normaliseFolderState(state: string): FolderState {
+	const known = FOLDER_STATES as readonly string[]
+	return known.includes(state) ? (state as FolderState) : 'unknown'
 }

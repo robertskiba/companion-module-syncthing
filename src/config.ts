@@ -6,6 +6,8 @@ export type ModuleConfig = {
 	useHttps: boolean
 	ignoreCertErrors: boolean
 	pollInterval: number
+	pollDetails: boolean
+	detailInterval: number
 }
 
 /** Values stored separately from the config so they are not echoed back to the web UI. */
@@ -19,6 +21,8 @@ export const DEFAULT_CONFIG: ModuleConfig = {
 	useHttps: false,
 	ignoreCertErrors: true,
 	pollInterval: 5,
+	pollDetails: true,
+	detailInterval: 10,
 }
 
 export function GetConfigFields(): SomeCompanionConfigField[] {
@@ -83,6 +87,37 @@ export function GetConfigFields(): SomeCompanionConfigField[] {
 			tooltip: 'Syncthing generates its own certificate, which is not signed by a public authority',
 			width: 6,
 			default: DEFAULT_CONFIG.ignoreCertErrors,
+		},
+		{
+			type: 'static-text',
+			id: 'detail_info',
+			label: 'Folder and device details',
+			width: 12,
+			value:
+				'Per-folder and per-device variables need one extra request per folder and per device. ' +
+				'Syncthing describes the folder status call as expensive, so these run on their own, ' +
+				'slower interval. Turn them off if the instance holds very large folders and you only ' +
+				'need the overall status.',
+		},
+		{
+			type: 'checkbox',
+			id: 'pollDetails',
+			label: 'Poll folder and device details',
+			width: 6,
+			default: DEFAULT_CONFIG.pollDetails,
+			// Referenced by the visibility expression below, which requires a plain value.
+			disableAutoExpression: true,
+		},
+		{
+			type: 'number',
+			id: 'detailInterval',
+			label: 'Detail interval (seconds)',
+			tooltip: 'How often per-folder and per-device data is refreshed',
+			width: 6,
+			min: 1,
+			max: 3600,
+			default: DEFAULT_CONFIG.detailInterval,
+			isVisibleExpression: '$(options:pollDetails)',
 		},
 	]
 }

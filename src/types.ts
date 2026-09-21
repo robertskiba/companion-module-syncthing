@@ -89,3 +89,57 @@ export interface ConfigFolder {
 	paused: boolean
 	devices: { deviceID: string }[]
 }
+
+/**
+ * GET /rest/db/status?folder=<id>
+ * Note: Syncthing documents this as an expensive call on large folders.
+ */
+export interface DbStatus {
+	errors: number
+	globalBytes: number
+	globalDeleted: number
+	globalDirectories: number
+	globalFiles: number
+	globalSymlinks: number
+	globalTotalItems: number
+	ignorePatterns: boolean
+	inSyncBytes: number
+	inSyncFiles: number
+	invalid: string
+	localBytes: number
+	localDeleted: number
+	localDirectories: number
+	localFiles: number
+	localSymlinks: number
+	localTotalItems: number
+	needBytes: number
+	needDeletes: number
+	needDirectories: number
+	needFiles: number
+	needSymlinks: number
+	needTotalItems: number
+	pullErrors: number
+	receiveOnlyChangedBytes: number
+	receiveOnlyChangedFiles: number
+	sequence: number
+	state: string
+	stateChanged: string
+	version: number
+}
+
+/**
+ * GET /rest/db/completion
+ * Both query parameters are optional: without a folder it aggregates all folders,
+ * without a device it reports the local device.
+ */
+export interface DbCompletion {
+	completion: number
+	globalBytes: number
+	globalItems: number
+	needBytes: number
+	needDeletes: number
+	needItems: number
+	/** valid, paused, notSharing or unknown. Added in Syncthing 1.20. */
+	remoteState?: string
+	sequence: number
+}

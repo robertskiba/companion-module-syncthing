@@ -133,7 +133,16 @@ console.log('5. found hosts are offered, still without preselecting anything')
 	check('the text lists what was found', /192\.168\.1\.9/.test(info?.value ?? ''), info?.value)
 }
 
-console.log('6. the discovery hint when nothing has been heard')
+console.log('6. there are no switches for things that should always run')
+{
+	const ids = GetConfigFields().map((f) => f.id)
+	check('no switch for the event stream', !ids.includes('useEvents'), JSON.stringify(ids))
+	check('no switch for the network search', !ids.includes('lanScan'), JSON.stringify(ids))
+	check('the defaults carry neither', !('useEvents' in DEFAULT_CONFIG) && !('lanScan' in DEFAULT_CONFIG))
+	check('the host can still be typed in by hand', field(GetConfigFields(), 'host')?.allowCustom === true)
+}
+
+console.log('7. the discovery hint when nothing has been heard')
 {
 	const info = field(GetConfigFields(), 'info')
 	check('it explains the wait', /30 to 60/.test(info?.value ?? ''), info?.value)

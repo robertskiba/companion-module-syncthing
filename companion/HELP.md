@@ -16,8 +16,6 @@ machines, add one connection per machine.
 | Read the API key automatically | Fills the field above from an unprotected web interface           |
 | Use HTTPS                      | Enable if the Syncthing GUI is served over HTTPS                  |
 | Accept self-signed certificate | Needed for HTTPS, because Syncthing generates its own certificate |
-| Look for instances             | Finds Syncthing on the network and offers it in the host list     |
-| Follow the event stream        | Reacts to changes immediately instead of at the next poll         |
 | Poll folder and device details | Turns the per-folder and per-device data on or off                |
 | Detail interval                | How often that per-folder and per-device data is refreshed        |
 
@@ -33,6 +31,10 @@ The API key is stored as a secret, separately from the rest of the configuration
 Syncthing announces itself by broadcasting on UDP port 21027. The module listens there, on every
 network interface of the Companion machine, and offers what it hears in the host list. Nothing is
 sent out, so the scan is invisible on the network.
+
+You can always type an address in instead of picking one. Discovery only reaches machines in the
+same broadcast domain, so an instance on another subnet, behind a router or across a VPN is never
+found, and typing its address is the only way to reach it.
 
 The announcement says which device is there, but not where its web interface is. Each newly heard
 instance is therefore checked on the port configured above, and only instances that actually
@@ -60,7 +62,14 @@ machine itself announces its network address, where its web interface is usually
 may not be listed. The host list offers 127.0.0.1 for that case, which is the usual setup on
 Windows and macOS, but it is never preselected.
 
-Found instances are also written to the connection log as they appear.
+An instance that did not answer is checked again a few minutes later, so binding Syncthing to a
+network address after the fact is picked up without doing anything in Companion. Changing the port
+and saving the connection rechecks everything immediately, since the entries were confirmed
+against the old port.
+
+Found instances are written to the connection log as they appear. With the log set to debug, every
+announcement heard is written too, along with the reason an address was skipped, which is the way
+to tell "heard nothing" apart from "heard it but it did not answer".
 
 ### Getting the API key without copying it
 
@@ -95,6 +104,10 @@ happens. Folder state, transfer progress, pause and resume, and devices coming a
 show up on buttons within milliseconds. Only the event types this module needs are subscribed to,
 so the per-file chatter never reaches Companion.
 
+Both the event stream and the search for instances run on their own. There is nothing to switch
+on, and nothing to switch off: neither has a case where turning it off helps, and an option nobody
+knowingly changes is only one more thing to explain.
+
 **Polling** is the floor underneath it. A short poll refreshes uptime, byte totals and the error
 list. The expensive per-folder call is where the event stream earns its keep: while events are
 flowing, folder numbers arrive in the events themselves, and the poll drops back to a safety net
@@ -103,8 +116,6 @@ that runs at most once every two minutes.
 If the stream breaks, the module says so in the log once, retries every few seconds, and keeps
 polling meanwhile, so buttons stay correct at the polling rate. If Syncthing restarts, its event
 numbering starts over, which the module notices and answers by reading the whole state again.
-
-Turn the stream off to fall back to polling only.
 
 ### Are we in sync?
 

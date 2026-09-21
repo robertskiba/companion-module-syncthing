@@ -10,8 +10,6 @@ export type ModuleConfig = {
 	pollDetails: boolean
 	detailInterval: number
 	autoApiKey: boolean
-	useEvents: boolean
-	lanScan: boolean
 }
 
 /** Values stored separately from the config so they are not echoed back to the web UI. */
@@ -28,8 +26,6 @@ export const DEFAULT_CONFIG: ModuleConfig = {
 	pollDetails: true,
 	detailInterval: 10,
 	autoApiKey: true,
-	useEvents: true,
-	lanScan: true,
 }
 
 /** The value the host field carries while nothing has been chosen. */
@@ -170,26 +166,6 @@ export function GetConfigFields(current?: Partial<ModuleConfig>, detected: LanHo
 			default: DEFAULT_CONFIG.ignoreCertErrors,
 		},
 		{
-			type: 'checkbox',
-			id: 'lanScan',
-			label: 'Look for Syncthing instances on the network',
-			tooltip:
-				'Listens for the announcements Syncthing broadcasts, then checks whether each ' +
-				'instance answers on the port above. Only reachable ones are offered.',
-			width: 12,
-			default: DEFAULT_CONFIG.lanScan,
-		},
-		{
-			type: 'checkbox',
-			id: 'useEvents',
-			label: 'Follow the Syncthing event stream',
-			tooltip:
-				'Keeps one long-lived request open so changes show up within milliseconds ' +
-				'instead of at the next poll. Turn it off to fall back to polling only.',
-			width: 12,
-			default: DEFAULT_CONFIG.useEvents,
-		},
-		{
 			type: 'static-text',
 			id: 'detail_info',
 			label: 'Folder and device details',
@@ -200,7 +176,8 @@ export function GetConfigFields(current?: Partial<ModuleConfig>, detected: LanHo
 				'slower interval. Turn them off if the instance holds very large folders and you only ' +
 				'need the overall status. While the event stream is connected these numbers arrive ' +
 				'from events instead, and the interval below only acts as a safety net, at most ' +
-				'once every two minutes.',
+				'once every two minutes. The event stream and the search for instances on the ' +
+				'network both run on their own; there is nothing to switch on.',
 		},
 		{
 			type: 'checkbox',

@@ -17,6 +17,32 @@ been tested against real Syncthing instances.
 
 Nothing yet.
 
+## [0.1.4] - 2026-09-21
+
+### Removed
+
+- The switches for following the event stream and for searching the network. Neither had a case
+  where turning it off helps: the stream is strictly better than waiting for the next poll and
+  polling stays underneath it either way, and the search only listens, so a network without
+  Syncthing simply produces nothing. An option nobody knowingly changes is one more thing to
+  explain, document and test.
+- The host field keeps its free text entry. Discovery only reaches the same broadcast domain, so
+  an instance on another subnet, behind a router or across a VPN can only be reached by typing its
+  address, and restricting the field to what was found would make those setups impossible.
+
+### Fixed
+
+- Changing the web interface port now applies to the search straight away. The port was read once
+  when the search started, so a corrected port was ignored until the connection was recreated.
+  Saving the connection with a different port also throws away what was found, because every entry
+  had been confirmed against the old port.
+- An instance that did not answer when it was first heard is checked again after a few minutes,
+  instead of staying invisible until the connection was saved. Binding a Syncthing to a network
+  address after Companion had already heard it is the ordinary case for this.
+- Every announcement heard is now written to the log at debug level, along with the reason an
+  address was skipped, so it is possible to tell "heard nothing" apart from "heard it but it did
+  not answer".
+
 ## [0.1.3] - 2026-09-21
 
 ### Fixed

@@ -365,6 +365,95 @@ console.log('7. the instance on this machine is searched for, not assumed')
 	scanner.stop()
 }
 
+console.log('7b. a host that failed is checked again after a while')
+{
+	const socket = new FakeSocket()
+	const probed = []
+	const logs = []
+	let reachable = false
+
+	const scanner = new LanScanner({
+		createSocket: () => socket,
+		probe: async (address) => {
+			if (address === LOCAL_ADDRESS) return undefined
+			probed.push(address)
+			return reachable ? 'http' : undefined
+		},
+		ownAddresses: () => [],
+		resolveName: async () => undefined,
+		onChange: () => {},
+		log: (level, message) => logs.push(`${level}: ${message}`),
+	})
+	scanner.start()
+
+	const packet = announcement({ id: deviceId })
+	socket.emit('message', packet, { address: '192.168.20.102', port: 21027 })
+	await waitFor(() => probed.length >= 1, 'the first check')
+	check('it is checked once', probed.length === 1, JSON.stringify(probed))
+	check('nothing is listed yet', scanner.hosts.length === 0)
+
+	// Once the check has finished and failed, announcing again must not cause another one.
+	await waitFor(() => logs.some((l) => /did not answer/.test(l)), 'the failed check to be recorded')
+	socket.emit('message', packet, { address: '192.168.20.102', port: 21027 })
+	await new Promise((r) => setTimeout(r, 150))
+	check('it is not checked again immediately', probed.length === 1, JSON.stringify(probed))
+	check(
+		'the log says why it was skipped',
+		logs.some((l) => /still waiting before checking it once more/.test(l)),
+		JSON.stringify(logs),
+	)
+	check(
+		'every announcement is logged',
+		logs.filter((l) => /Heard a Syncthing announcement from 192.168.20.102/.test(l)).length === 2,
+		JSON.stringify(logs),
+	)
+
+	// Saving the connection is the other way to make it try again, and it still works.
+	reachable = true
+	scanner.retryUnreachable()
+	socket.emit('message', packet, { address: '192.168.20.102', port: 21027 })
+	await waitFor(() => scanner.hosts.length >= 1, 'the host after it became reachable')
+	check('it appears once it answers', scanner.hosts[0]?.address === '192.168.20.102')
+
+	scanner.stop()
+}
+
+console.log('7c. changing the port throws the confirmed list away')
+{
+	const socket = new FakeSocket()
+	let port = 8384
+	const scanner = new LanScanner({
+		createSocket: () => socket,
+		probe: async (address) => (address !== LOCAL_ADDRESS && port === 8384 ? 'http' : undefined),
+		ownAddresses: () => [],
+		resolveName: async () => undefined,
+		onChange: () => {},
+		log: () => {},
+	})
+	scanner.start()
+
+	socket.emit('message', announcement({ id: deviceId }), { address: '192.168.20.102', port: 21027 })
+	await waitFor(() => scanner.hosts.length >= 1, 'a confirmed host')
+	check('a host is listed on the old port', scanner.hosts.length === 1)
+
+	// The user corrects the port; nothing was confirmed against the new one.
+	port = 9999
+	scanner.reset()
+	check('the list is emptied', scanner.hosts.length === 0, JSON.stringify(scanner.hosts))
+
+	socket.emit('message', announcement({ id: deviceId }), { address: '192.168.20.102', port: 21027 })
+	await new Promise((r) => setTimeout(r, 200))
+	check('it is not listed again while it does not answer', scanner.hosts.length === 0, JSON.stringify(scanner.hosts))
+
+	port = 8384
+	scanner.reset()
+	socket.emit('message', announcement({ id: deviceId }), { address: '192.168.20.102', port: 21027 })
+	await waitFor(() => scanner.hosts.length >= 1, 'the host on the corrected port')
+	check('it comes back once the port is right', scanner.hosts[0]?.address === '192.168.20.102')
+
+	scanner.stop()
+}
+
 console.log('8. a taken port is reopened with address reuse')
 {
 	// Syncthing on the same machine holds the port, so the shared socket is refused.

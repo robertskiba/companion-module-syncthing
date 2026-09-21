@@ -55,6 +55,8 @@ export type ModuleSchema = {
 const REQUEST_TIMEOUT_MS = 10_000
 /** Slowest the detail poll runs while the event stream is delivering changes. */
 const EVENT_FALLBACK_SECONDS = 120
+/** The Syncthing web interface port, used for probing before one has been configured. */
+const DEFAULT_PORT = 8384
 
 export { UpgradeScripts }
 
@@ -81,6 +83,8 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	#devicesToRefresh = new Set<string>()
 	#refreshTimer: NodeJS.Timeout | undefined
 	#scanner: LanScanner | undefined
+	/** The settings the found hosts were confirmed against, so a change can invalidate them. */
+	#probeSettings = ''
 	/** Syncthing instances found on the network whose web interface answered. */
 	lanHosts: LanHost[] = []
 	/** Remembers the last reported problem so the log is not flooded while an instance is down. */
@@ -123,28 +127,34 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	}
 
 	/**
-	 * Starts or stops listening for Syncthing announcements.
+	 * Listens for Syncthing announcements.
 	 *
 	 * This runs independently of the connection, so instances can be found before anything has
-	 * been configured, which is the point of it.
+	 * been configured, which is the point of it. It only listens, so there is nothing to switch
+	 * off: a machine with no Syncthing on the network simply never hears anything.
 	 */
 	#applyLanScan(): void {
-		if (!this.config.lanScan) {
-			this.#scanner?.stop()
-			this.#scanner = undefined
-			this.lanHosts = []
+		const settings = `${this.config.port || DEFAULT_PORT}|${this.config.ignoreCertErrors}`
+
+		if (this.#scanner) {
+			if (settings !== this.#probeSettings) {
+				// Every entry was confirmed against the old port, so none of them can be trusted.
+				this.#probeSettings = settings
+				this.log('debug', `Web interface port changed, checking the network again on ${settings.split('|')[0]}`)
+				this.#scanner.reset()
+			} else {
+				this.#scanner.retryUnreachable()
+			}
 			return
 		}
 
-		if (this.#scanner) {
-			// The port or certificate setting may have changed, so hosts that failed get another go.
-			this.#scanner.retryUnreachable()
-			return
-		}
+		this.#probeSettings = settings
 
 		this.#scanner = new LanScanner({
 			createSocket: () => this.createSharedUdpSocket('udp4'),
-			probe: createHttpProbe(this.config.port || 8384, this.config.ignoreCertErrors),
+			// Read at call time, so changing the port applies without rebuilding the scanner.
+			probe: async (address) =>
+				createHttpProbe(this.config.port || DEFAULT_PORT, this.config.ignoreCertErrors)(address),
 			resolveName: createNameResolver(),
 			ownAddresses: localIpv4Addresses,
 			onChange: (hosts) => {
@@ -328,7 +338,9 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	}
 
 	#startEventStream(api: SyncthingApi): void {
-		if (!this.config.useEvents || this.#eventStream) return
+		// Always followed: it is strictly better than waiting for the next poll, and polling stays
+		// underneath as a floor, so there is nothing a switch would protect against.
+		if (this.#eventStream) return
 
 		this.#eventStream = new EventStream({
 			api,

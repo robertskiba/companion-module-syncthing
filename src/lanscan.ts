@@ -30,6 +30,14 @@ export const LOCAL_ADDRESS = '127.0.0.1'
 /** How often the instance on this machine is checked, since it cannot be waited for. */
 const LOCAL_PROBE_INTERVAL_MS = 60_000
 
+/**
+ * How long an address that failed the check is left alone before being tried again.
+ *
+ * Without this, an instance whose web interface was bound to localhost when it was first heard
+ * would stay invisible forever, however the setting was changed afterwards.
+ */
+const RETRY_UNREACHABLE_AFTER_MS = 3 * 60 * 1000
+
 /** Hosts are forgotten when they have not announced themselves for this long. */
 const FORGET_AFTER_MS = 10 * 60 * 1000
 
@@ -457,6 +465,23 @@ export class LanScanner {
 	}
 
 	/**
+	 * Throws away everything found so far and starts again.
+	 *
+	 * Used when the port or the certificate setting changed, because every entry in the list was
+	 * confirmed against the old settings and may no longer be right. Instances announce themselves
+	 * every 30 to 60 seconds, so the list fills again on its own.
+	 */
+	reset(): void {
+		const had = this.#hosts.size > 0
+		this.#hosts.clear()
+		this.#unreachable.clear()
+		// The device ID of this machine does not depend on the port, so it is kept.
+
+		if (had) this.#options.onChange(this.hosts)
+		void this.#checkLocal()
+	}
+
+	/**
 	 * Checks the instance on this machine the same way as any other, rather than assuming it is
 	 * there. Binding Syncthing to a single network address makes its interface unreachable over
 	 * 127.0.0.1, in which case this finds nothing and the address is correctly left out.
@@ -553,6 +578,8 @@ export class LanScanner {
 		const announcement = parseAnnouncement(packet)
 		if (!announcement) return
 
+		this.#options.log('debug', `Heard a Syncthing announcement from ${address}`)
+
 		if (this.#isOwnAddress(address)) {
 			const shortId = shortDeviceId(announcement.id)
 			if (this.#localShortId !== shortId) {
@@ -571,8 +598,18 @@ export class LanScanner {
 			return
 		}
 
-		// A host that already failed is not probed again on every announcement.
-		if (this.#probing.has(address) || this.#unreachable.has(address)) return
+		if (this.#probing.has(address)) return
+
+		// A host that failed is left alone for a while, rather than probed on every announcement.
+		const failedAt = this.#unreachable.get(address)
+		if (failedAt !== undefined) {
+			if (Date.now() - failedAt < RETRY_UNREACHABLE_AFTER_MS) {
+				this.#options.log('debug', `${address} announced itself again; still waiting before checking it once more`)
+				return
+			}
+			this.#unreachable.delete(address)
+			this.#options.log('debug', `Checking ${address} again after it did not answer earlier`)
+		}
 
 		this.#probing.add(address)
 		void this.#examine(address, announcement).finally(() => {

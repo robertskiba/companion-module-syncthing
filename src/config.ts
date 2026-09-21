@@ -66,17 +66,31 @@ function hostChoices(current: string | undefined, detected: LanHost[]): Dropdown
 	return choices
 }
 
-/** A sentence about what network discovery has turned up so far. */
+/**
+ * A sentence about what the network search has turned up so far.
+ *
+ * Companion builds this page once, when it is opened, and the module cannot push a longer list to
+ * a page that is already on screen. Since instances announce themselves only every half minute or
+ * so, the page has to be reopened to pick up anything heard since, and saying so plainly is the
+ * only way to stop the list looking broken.
+ */
 function describeDetected(detected: LanHost[]): string {
+	const refresh =
+		'This list is built when the page opens. Leave the page and come back to pick up anything ' +
+		'found since. The variable discovered_count shows the current number at any time.'
+
 	if (detected.length === 0) {
 		return (
-			'No instances found on the network yet. Syncthing announces itself every 30 to 60 ' +
-			'seconds, so reopen this page in a minute. Instances whose web interface is bound to ' +
-			'localhost only never appear, because they cannot be reached from here.'
+			'Nothing found on the network yet. Syncthing announces itself every 30 to 60 seconds, ' +
+			'so give it a minute. ' +
+			refresh +
+			' Instances whose web interface is bound to localhost only never appear, because they ' +
+			'cannot be reached from here.'
 		)
 	}
+
 	const list = detected.map((host) => (host.hostname ? `${host.address} (${host.hostname})` : host.address))
-	return `Found on the network: ${list.join(', ')}.`
+	return `Found on the network so far: ${list.join(', ')}. ` + refresh
 }
 
 export function GetConfigFields(current?: Partial<ModuleConfig>, detected: LanHost[] = []): SomeCompanionConfigField[] {

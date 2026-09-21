@@ -57,7 +57,9 @@ notices and opens the port again in a mode that allows sharing, so both can list
 refuse even that, and the log then says that instances will not be found.
 
 Two things to expect. Announcements arrive every 30 to 60 seconds, so the list can be empty for a
-minute after opening the page; reopen it and the entries appear. And the instance on the Companion
+minute after opening the page. Companion builds this page when it is opened and the module cannot
+extend a list that is already on screen, so leave the page and come back to pick up anything found
+since. The variable discovered_count shows the current number without leaving the page. And the instance on the Companion
 machine itself announces its network address, where its web interface is usually not bound, so it
 may not be listed. The host list offers 127.0.0.1 for that case, which is the usual setup on
 Windows and macOS, but it is never preselected.

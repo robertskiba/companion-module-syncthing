@@ -15,8 +15,21 @@ been tested against real Syncthing instances.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.5] - 2026-09-21
+
+### Added
+
+- Two variables, discovered_hosts and discovered_count, showing what the network search has found.
+  They are set before a host has been chosen, so they can be put on a button while setting up.
+
 ### Changed
 
+- The configuration now says plainly that the list of found instances is built when the page is
+  opened, and that leaving the page and coming back picks up anything found since. Companion asks
+  the module for its fields at that moment and the module cannot extend a list that is already on
+  screen, so an instance heard ten seconds after the page opened appeared to be missing.
 - The option for reading the API key now says "try to", because that is what it does. An instance
   whose web interface is properly protected refuses, which is correct behaviour on its part, and
   the key then has to be entered by hand. The tooltip says so too.

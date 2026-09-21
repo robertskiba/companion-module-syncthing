@@ -15,6 +15,25 @@ been tested against real Syncthing instances.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.9] - 2026-09-21
+
+### Fixed
+
+- A connection with no host could not be saved at all, because the host field was validated
+  against a pattern that rejects an empty value. Since a fresh connection deliberately starts
+  without a host, that made every other setting unreachable too, including the port.
+- The host field now accepts exactly what it should: a DNS name of any depth, an IP address in
+  either family, or nothing. A name of any depth matters for a machine reached across a VPN or
+  through a router, which the network search can never find.
+
+### Removed
+
+- The poll interval. What the poll still covers is six small requests whatever the instance holds,
+  so the cost does not grow with the setup and there is nothing worth asking anybody to tune. It
+  runs every five seconds.
+
 ### Fixed
 
 - After changing the web interface port, the configuration page could stay drawn for the old list

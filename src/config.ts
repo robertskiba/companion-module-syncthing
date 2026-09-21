@@ -1,4 +1,4 @@
-import { Regex, type DropdownChoice, type SomeCompanionConfigField } from '@companion-module/base'
+import type { DropdownChoice, SomeCompanionConfigField } from '@companion-module/base'
 import type { LanHost } from './lanscan.js'
 
 export type ModuleConfig = {
@@ -8,7 +8,6 @@ export type ModuleConfig = {
 	port: number
 	useHttps: boolean
 	ignoreCertErrors: boolean
-	pollInterval: number
 	autoApiKey: boolean
 }
 
@@ -23,12 +22,24 @@ export const DEFAULT_CONFIG: ModuleConfig = {
 	port: 8384,
 	useHttps: false,
 	ignoreCertErrors: true,
-	pollInterval: 5,
 	autoApiKey: true,
 }
 
 /** The value the host field carries while nothing has been chosen. */
 export const NO_HOST = ''
+
+/**
+ * What the host field accepts: a DNS name, an IP address, or nothing.
+ *
+ * Empty has to pass, because a fresh connection starts without a host, and a field that refuses
+ * to be empty cannot be saved at all, which would block every other setting with it.
+ *
+ * A name is deliberately allowed to be any depth, so a machine reached across a VPN or through a
+ * router by its full domain name is as valid as one found on the local network. IPv6 literals are
+ * accepted in their bare form, without the brackets a URL would need.
+ */
+export const HOST_REGEX =
+	'/^$|^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*$|^[0-9A-Fa-f:]+$/'
 
 /** The base URL of the web interface for a given configuration. */
 export function guiUrlFor(config: Pick<ModuleConfig, 'host' | 'port' | 'useHttps'>): string {
@@ -131,30 +142,22 @@ export function GetConfigFields(
 			type: 'textinput',
 			id: 'host',
 			label: 'Host',
-			tooltip: 'IP address or hostname of the machine running Syncthing',
+			tooltip:
+				'IP address or DNS name of the machine running Syncthing, with no protocol and no ' +
+				'port. The port belongs in the field beside this one.',
 			width: 6,
 			default: NO_HOST,
-			regex: Regex.HOSTNAME,
+			regex: HOST_REGEX,
 		},
 		{
 			type: 'number',
 			id: 'port',
 			label: 'GUI port',
 			tooltip: 'The port of the Syncthing web GUI, 8384 by default',
-			width: 3,
+			width: 6,
 			min: 1,
 			max: 65535,
 			default: DEFAULT_CONFIG.port,
-		},
-		{
-			type: 'number',
-			id: 'pollInterval',
-			label: 'Poll interval (seconds)',
-			tooltip: 'How often the module refreshes status and variables',
-			width: 3,
-			min: 1,
-			max: 3600,
-			default: DEFAULT_CONFIG.pollInterval,
 		},
 		{
 			type: 'secret-text',

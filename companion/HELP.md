@@ -10,13 +10,17 @@ machines, add one connection per machine.
 | Field                          | Meaning                                                           |
 | ------------------------------ | ----------------------------------------------------------------- |
 | Instances found on the network | Appears once the search has run. Pick one to fill in the host     |
-| Host                           | IP address or hostname. Empty on a fresh connection               |
+| Host                           | IP address or DNS name. Empty on a fresh connection               |
 | GUI port                       | Port of the Syncthing web interface, `8384` by default            |
-| Poll interval                  | How often the module refreshes status and variables, in seconds   |
 | API key                        | Taken from the Syncthing GUI under Actions > Settings > General   |
 | Try to read the API key        | Fills the field above from an unprotected web interface           |
 | Use HTTPS                      | Enable if the Syncthing GUI is served over HTTPS                  |
 | Accept self-signed certificate | Needed for HTTPS, because Syncthing generates its own certificate |
+
+The host takes an IP address or a DNS name, and may be left empty. A name of any depth is
+accepted, so a machine reached across a VPN or through a router by its full domain name works as
+well as one on the local network. What it does not take is a whole web address: no protocol in
+front and no port behind, because the port has its own field.
 
 A new connection starts with no host chosen, and contacts nothing at all until you pick one. That
 includes the machine Companion runs on: 127.0.0.1 is offered in the list, but never chosen for

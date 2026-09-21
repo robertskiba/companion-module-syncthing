@@ -1,6 +1,6 @@
 // Checks that a freshly added connection contacts nothing until a host has been chosen.
 const D = '../dist'
-const { GetConfigFields, DEFAULT_CONFIG, guiUrlFor, NO_HOST } = await import(`${D}/config.js`)
+const { GetConfigFields, DEFAULT_CONFIG, guiUrlFor, NO_HOST, HOST_REGEX } = await import(`${D}/config.js`)
 
 let failures = 0
 const check = (name, cond, detail = '') => {
@@ -138,11 +138,46 @@ console.log('6. there are no switches for things that should always run')
 		'the defaults carry neither either',
 		!('pollDetails' in DEFAULT_CONFIG) && !('detailInterval' in DEFAULT_CONFIG),
 	)
-	check('what is left is a short list', ids.length <= 8, JSON.stringify(ids))
+	check('no poll interval to tune', !ids.includes('pollInterval'), JSON.stringify(ids))
+	check('the defaults carry no poll interval', !('pollInterval' in DEFAULT_CONFIG))
+	check('what is left is a short list', ids.length <= 7, JSON.stringify(ids))
 	check('the host can still be typed in by hand', field(GetConfigFields(), 'host')?.type === 'textinput')
 }
 
-console.log('7. the discovery hint when nothing has been heard')
+console.log('7. what the host field accepts')
+{
+	const host = new RegExp(HOST_REGEX.slice(1, -1))
+
+	const accepted = [
+		['nothing at all', ''],
+		['a plain IPv4 address', '192.168.20.102'],
+		['loopback', '127.0.0.1'],
+		['a bare machine name', 'localhost'],
+		['a Windows machine name with a dash', 'DATEV11-PC'],
+		['a local domain name', 'media-pc.lan'],
+		['a full domain name for a remote machine', 'syncthing.example.com'],
+		['a deep domain name', 'st.branch.office.example.com'],
+		['a bare IPv6 address', 'fe80::1'],
+	]
+	for (const [what, value] of accepted) {
+		check(`accepts ${what}`, host.test(value), JSON.stringify(value))
+	}
+
+	const rejected = [
+		['a whole URL', 'http://10.0.0.5'],
+		['an address with a port', '10.0.0.5:8384'],
+		['anything with a space', 'media pc'],
+		['a trailing dash', 'trailing-'],
+		['a leading dash', '-leading'],
+		['a doubled dot', 'two..dots'],
+		['a path', 'host/path'],
+	]
+	for (const [what, value] of rejected) {
+		check(`rejects ${what}`, !host.test(value), JSON.stringify(value))
+	}
+}
+
+console.log('8. the discovery hint when nothing has been heard')
 {
 	const info = field(GetConfigFields(), 'info')
 	check('it explains the wait', /30 to 60/.test(info?.value ?? ''), info?.value)

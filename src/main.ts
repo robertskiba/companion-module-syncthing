@@ -64,6 +64,14 @@ const REQUEST_TIMEOUT_MS = 10_000
 const EVENT_FALLBACK_SECONDS = 120
 /** How often folder and device detail is read when the event stream is not connected. */
 const DETAIL_SECONDS_WITHOUT_EVENTS = 30
+/**
+ * How often the cheap, constant part of the state is read: version, uptime, byte totals, the error
+ * list and the folder and device lists.
+ *
+ * Six small requests whatever the instance holds, so the cost does not grow with the setup and
+ * there is nothing here worth asking anybody to tune.
+ */
+const BASE_POLL_SECONDS = 5
 /** The Syncthing web interface port, used for probing before one has been configured. */
 const DEFAULT_PORT = 8384
 
@@ -352,10 +360,9 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	}
 
 	#startPolling(): void {
-		const intervalMs = Math.max(1, this.config.pollInterval) * 1000
 		this.#pollTimer = setInterval(() => {
 			void this.poll()
-		}, intervalMs)
+		}, BASE_POLL_SECONDS * 1000)
 
 		void this.poll()
 	}

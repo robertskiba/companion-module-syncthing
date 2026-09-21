@@ -175,7 +175,6 @@ const baseConfig = (port) => ({
 	port,
 	useHttps: false,
 	ignoreCertErrors: true,
-	pollInterval: 1,
 	autoApiKey: true,
 	foundHosts: '',
 })

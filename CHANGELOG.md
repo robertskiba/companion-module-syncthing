@@ -15,7 +15,10 @@ been tested against real Syncthing instances.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- After changing the web interface port, the configuration page could stay drawn for the old list
+  of found instances when the new list happened to be the same length.
 
 ## [0.1.8] - 2026-09-21
 

@@ -1,0 +1,28 @@
+{
+	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
+	"type": "connection",
+	"id": "syncthing",
+	"name": "syncthing",
+	"shortname": "Syncthing",
+	"description": "Monitor and control a Syncthing instance via its REST API",
+	"version": "0.0.0",
+	"license": "MIT",
+	"repository": "git+https://github.com/bitfocus/companion-module-syncthing.git",
+	"bugs": "https://github.com/bitfocus/companion-module-syncthing/issues",
+	"maintainers": [
+		{
+			"name": "Konferenzregie",
+			"email": "info@konferenzregie.de"
+		}
+	],
+	"runtime": {
+		"type": "node22",
+		"api": "nodejs-ipc",
+		"apiVersion": "2.0.4",
+		"entrypoint": "../dist/main.js"
+	},
+	"legacyIds": [],
+	"manufacturer": "Syncthing Foundation",
+	"products": ["Syncthing"],
+	"keywords": ["sync", "file-sync", "backup", "storage", "rest"]
+}

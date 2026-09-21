@@ -1,4 +1,5 @@
 import { reverse as dnsReverse } from 'node:dns/promises'
+import { networkInterfaces } from 'node:os'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import type { LogLevel, SharedUdpSocket } from '@companion-module/base'
@@ -20,6 +21,12 @@ export const DISCOVERY_PORT = 21027
 
 /** First four bytes of every announcement, in network byte order. */
 export const DISCOVERY_MAGIC = 0x2ea7d90b
+
+/** The address of the instance on this machine, which never announces itself to us usefully. */
+export const LOCAL_ADDRESS = '127.0.0.1'
+
+/** How often the instance on this machine is checked, since it cannot be waited for. */
+const LOCAL_PROBE_INTERVAL_MS = 60_000
 
 /** Hosts are forgotten when they have not announced themselves for this long. */
 const FORGET_AFTER_MS = 10 * 60 * 1000
@@ -249,6 +256,8 @@ export interface LanScannerOptions {
 	probe: (address: string) => Promise<'http' | 'https' | undefined>
 	/** Looks up the name of an address. Optional, because a network need not answer. */
 	resolveName?: (address: string) => Promise<string | undefined>
+	/** The addresses of this machine, used to recognise its own announcements. */
+	ownAddresses?: () => string[]
 	/** Called whenever the list of reachable hosts changed. */
 	onChange: (hosts: LanHost[]) => void
 	log: (level: LogLevel, message: string) => void
@@ -263,6 +272,10 @@ export class LanScanner {
 	#probing = new Set<string>()
 	/** Addresses that did not answer, with the time they were last tried. */
 	#unreachable = new Map<string, number>()
+	/** Repeats the check of the instance on this machine. */
+	#localTimer: NodeJS.Timeout | undefined
+	/** The device ID of the instance on this machine, once it has announced itself. */
+	#localShortId: string | undefined
 	#running = false
 
 	constructor(options: LanScannerOptions) {
@@ -280,6 +293,11 @@ export class LanScanner {
 	start(): void {
 		if (this.#running) return
 		this.#running = true
+
+		// The instance on this machine cannot be waited for, because we never receive a broadcast
+		// that is useful for reaching it, so it is checked directly and then repeatedly.
+		void this.#checkLocal()
+		this.#localTimer = setInterval(() => void this.#checkLocal(), LOCAL_PROBE_INTERVAL_MS)
 
 		try {
 			const socket = this.#options.createSocket()
@@ -315,6 +333,11 @@ export class LanScanner {
 		this.#running = false
 		this.#probing.clear()
 
+		if (this.#localTimer) {
+			clearInterval(this.#localTimer)
+			this.#localTimer = undefined
+		}
+
 		if (this.#socket) {
 			try {
 				this.#socket.close()
@@ -328,6 +351,54 @@ export class LanScanner {
 	/** Forgets which hosts failed the probe, so a changed setup is picked up again. */
 	retryUnreachable(): void {
 		this.#unreachable.clear()
+		void this.#checkLocal()
+	}
+
+	/**
+	 * Checks the instance on this machine the same way as any other, rather than assuming it is
+	 * there. Binding Syncthing to a single network address makes its interface unreachable over
+	 * 127.0.0.1, in which case this finds nothing and the address is correctly left out.
+	 */
+	async #checkLocal(): Promise<void> {
+		if (!this.#running) return
+
+		let scheme: 'http' | 'https' | undefined
+		try {
+			scheme = await this.#options.probe(LOCAL_ADDRESS)
+		} catch {
+			scheme = undefined
+		}
+		if (!this.#running) return
+
+		const had = this.#hosts.has(LOCAL_ADDRESS)
+
+		if (!scheme) {
+			if (had) {
+				this.#hosts.delete(LOCAL_ADDRESS)
+				this.#options.onChange(this.hosts)
+			}
+			return
+		}
+
+		this.#hosts.set(LOCAL_ADDRESS, {
+			address: LOCAL_ADDRESS,
+			shortId: this.#localShortId ?? '',
+			hostname: 'this machine',
+			scheme,
+			syncAddresses: [],
+			lastSeen: Date.now(),
+		})
+
+		if (!had) {
+			this.#options.log('info', `Found Syncthing on this machine at ${LOCAL_ADDRESS}, web interface reachable`)
+			this.#options.onChange(this.hosts)
+		}
+	}
+
+	/** True when the address belongs to this machine, so its announcement is our own. */
+	#isOwnAddress(address: string): boolean {
+		const own = this.#options.ownAddresses ? this.#options.ownAddresses() : localIpv4Addresses()
+		return own.includes(address)
 	}
 
 	/** Probes one newly heard address and, if it answers, records it with whatever name it has. */
@@ -380,6 +451,18 @@ export class LanScanner {
 		const announcement = parseAnnouncement(packet)
 		if (!announcement) return
 
+		if (this.#isOwnAddress(address)) {
+			const shortId = shortDeviceId(announcement.id)
+			if (this.#localShortId !== shortId) {
+				this.#localShortId = shortId
+				const local = this.#hosts.get(LOCAL_ADDRESS)
+				if (local) {
+					local.shortId = shortId
+					this.#options.onChange(this.hosts)
+				}
+			}
+		}
+
 		const known = this.#hosts.get(address)
 		if (known) {
 			known.lastSeen = Date.now()
@@ -394,4 +477,15 @@ export class LanScanner {
 			this.#probing.delete(address)
 		})
 	}
+}
+
+/** The IPv4 addresses of this machine, used to recognise its own announcements. */
+export function localIpv4Addresses(): string[] {
+	const addresses: string[] = []
+	for (const entries of Object.values(networkInterfaces())) {
+		for (const entry of entries ?? []) {
+			if (entry.family === 'IPv4') addresses.push(entry.address)
+		}
+	}
+	return addresses
 }

@@ -17,6 +17,32 @@ been tested against real Syncthing instances.
 
 Nothing yet.
 
+## [0.1.2] - 2026-09-21
+
+### Changed
+
+- A newly added connection starts with no host chosen and contacts nothing until one is picked,
+  where it previously defaulted to 127.0.0.1 and began polling the local machine straight away.
+  On a network with several machines the local instance is rarely the one wanted, and a connection
+  attempt nobody asked for is worse than an empty field.
+- 127.0.0.1 is still offered in the host list, labelled as this machine, but it is never
+  preselected and sits after whatever was found on the network.
+- The connection status now reads "No host chosen yet", and the configuration text says plainly
+  that nothing is being contacted, instead of showing an address derived from a host that was
+  never chosen.
+- The instance on the machine Companion runs on is now searched for like any other, by checking
+  127.0.0.1 directly and repeating that check every minute. It was previously offered outright,
+  which is wrong: binding Syncthing to a single network address makes its interface unreachable
+  over 127.0.0.1, and the list would have suggested an address that does not work.
+- The device ID for that local entry is taken from its own broadcast when one arrives, so it reads
+  like every other entry.
+
+### Added
+
+- A diagnostic script, `node scripts/discover-check.mjs [address]`, which binds the same port the
+  module binds, prints every announcement it hears, and says for each whether the module would
+  list it. Meant for working out why an instance is not being found.
+
 ## [0.1.1] - 2026-09-21
 
 ### Added

@@ -19,7 +19,7 @@ import { UpdatePresets } from './presets.js'
 import { SyncthingApi, SyncthingApiError } from './api.js'
 import { discoverApiKey } from './discover.js'
 import { EventStream, eventNumber, eventString, type SyncthingEvent } from './events.js'
-import { createDnsResolver, createHttpProbe, LanScanner, type LanHost } from './lanscan.js'
+import { createDnsResolver, createHttpProbe, LanScanner, localIpv4Addresses, type LanHost } from './lanscan.js'
 import {
 	assignPrefixPairs,
 	createEmptyState,
@@ -146,6 +146,7 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			createSocket: () => this.createSharedUdpSocket('udp4'),
 			probe: createHttpProbe(this.config.port || 8384, this.config.ignoreCertErrors),
 			resolveName: createDnsResolver(),
+			ownAddresses: localIpv4Addresses,
 			onChange: (hosts) => {
 				this.lanHosts = hosts
 			},
@@ -199,8 +200,9 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		this.state.guiUrl = guiUrlFor(this.config)
 
 		if (!this.config.host) {
+			// Nothing is contacted until a host has been chosen, not even the local machine.
 			this.#setDisconnected()
-			this.updateStatus(InstanceStatus.BadConfig, 'No host configured')
+			this.updateStatus(InstanceStatus.BadConfig, 'No host chosen yet')
 			return
 		}
 		if (!this.secrets.apiKey) {

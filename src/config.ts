@@ -20,7 +20,7 @@ export type ModuleSecrets = {
 }
 
 export const DEFAULT_CONFIG: ModuleConfig = {
-	host: '127.0.0.1',
+	host: '',
 	port: 8384,
 	useHttps: false,
 	ignoreCertErrors: true,
@@ -32,18 +32,21 @@ export const DEFAULT_CONFIG: ModuleConfig = {
 	lanScan: true,
 }
 
+/** The value the host field carries while nothing has been chosen. */
+export const NO_HOST = ''
+
 /** The base URL of the web interface for a given configuration. */
 export function guiUrlFor(config: Pick<ModuleConfig, 'host' | 'port' | 'useHttps'>): string {
-	const host = config.host || DEFAULT_CONFIG.host
+	if (!config.host) return ''
 	const port = config.port || DEFAULT_CONFIG.port
-	return `${config.useHttps ? 'https' : 'http'}://${host}:${port}`
+	return `${config.useHttps ? 'https' : 'http'}://${config.host}:${port}`
 }
 
 /** The label for one found host: address, resolved name where there is one, and device ID. */
 function describeHost(host: LanHost): string {
 	const parts = [host.address]
 	if (host.hostname) parts.push(host.hostname)
-	parts.push(`device ${host.shortId}`)
+	if (host.shortId) parts.push(`device ${host.shortId}`)
 	if (host.scheme === 'https') parts.push('HTTPS')
 	return `${parts[0]} - ${parts.slice(1).join(', ')}`
 }
@@ -58,16 +61,12 @@ function hostChoices(current: string | undefined, detected: LanHost[]): Dropdown
 		label: describeHost(host),
 	}))
 
-	// On Windows and macOS the instance usually runs on the same machine as Companion. That one
-	// announces itself under its network address, where its web interface is often not bound, so
-	// it would be missing from the list. Offering localhost outright avoids that trap.
-	if (!choices.some((choice) => choice.id === DEFAULT_CONFIG.host)) {
-		choices.unshift({ id: DEFAULT_CONFIG.host, label: `${DEFAULT_CONFIG.host} (this machine)` })
-	}
-
 	if (current && !choices.some((choice) => choice.id === current)) {
 		choices.unshift({ id: current, label: current })
 	}
+
+	// An explicit empty entry, so "nothing chosen" is a real value the dropdown can hold.
+	choices.unshift({ id: NO_HOST, label: 'Select a host' })
 	return choices
 }
 
@@ -86,7 +85,7 @@ function describeDetected(detected: LanHost[]): string {
 
 export function GetConfigFields(current?: Partial<ModuleConfig>, detected: LanHost[] = []): SomeCompanionConfigField[] {
 	const guiUrl = guiUrlFor({
-		host: current?.host ?? DEFAULT_CONFIG.host,
+		host: current?.host ?? NO_HOST,
 		port: current?.port ?? DEFAULT_CONFIG.port,
 		useHttps: current?.useHttps ?? DEFAULT_CONFIG.useHttps,
 	})
@@ -100,8 +99,10 @@ export function GetConfigFields(current?: Partial<ModuleConfig>, detected: LanHo
 			value:
 				'Connects to the REST API of a Syncthing instance. ' +
 				'The API key is shown in the Syncthing web GUI under Actions > Settings > General. ' +
-				`With the settings saved below, that GUI is at ${guiUrl} . ` +
-				'The same address is available on buttons as the variable gui_url. ' +
+				(guiUrl
+					? `With the settings saved below, that GUI is at ${guiUrl} , ` +
+						'which is also available on buttons as the variable gui_url. '
+					: 'No host has been chosen yet, so nothing is being contacted. ') +
 				`${describeDetected(detected)}`,
 		},
 		{
@@ -110,7 +111,7 @@ export function GetConfigFields(current?: Partial<ModuleConfig>, detected: LanHo
 			label: 'Host',
 			tooltip: 'Instances found on the network are offered here. ' + 'Any other address can be typed in instead.',
 			width: 6,
-			default: current?.host ?? DEFAULT_CONFIG.host,
+			default: NO_HOST,
 			choices: hostChoices(current?.host, detected),
 			allowCustom: true,
 			regex: Regex.HOSTNAME,

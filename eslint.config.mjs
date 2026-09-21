@@ -5,9 +5,9 @@ export default [
 		enableTypescript: true,
 	})),
 	{
-		// The test scripts are development tools: they run the built output directly and
-		// report their result through the exit code, which the shipped module never does.
-		files: ['tests/**/*.mjs'],
+		// The test and diagnostic scripts are development tools: they run the built output
+		// directly and report their result through the exit code, which the module never does.
+		files: ['tests/**/*.mjs', 'scripts/**/*.mjs'],
 		rules: {
 			'n/no-unpublished-import': 'off',
 			'n/no-process-exit': 'off',

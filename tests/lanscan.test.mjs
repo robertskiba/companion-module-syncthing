@@ -2,8 +2,16 @@
 import { EventEmitter } from 'node:events'
 import http from 'node:http'
 const D = '../dist'
-const { parseAnnouncement, base32Encode, shortDeviceId, LanScanner, createHttpProbe, DISCOVERY_PORT, DISCOVERY_MAGIC } =
-	await import(`${D}/lanscan.js`)
+const {
+	parseAnnouncement,
+	base32Encode,
+	shortDeviceId,
+	LanScanner,
+	createHttpProbe,
+	DISCOVERY_PORT,
+	DISCOVERY_MAGIC,
+	LOCAL_ADDRESS,
+} = await import(`${D}/lanscan.js`)
 
 let failures = 0
 const check = (name, cond, detail = '') => {
@@ -176,11 +184,15 @@ console.log('4. the scanner')
 			probed.push(address)
 			return address === '192.168.1.5' ? 'http' : undefined
 		},
+		ownAddresses: () => [],
 		resolveName: async (address) => (address === '192.168.1.5' ? 'media-pc.lan' : undefined),
 		onChange: () => void changes++,
 		log: (level, message) => logs.push(`${level}: ${message}`),
 	})
 	scanner.start()
+
+	// The check of this machine runs alongside, so it is kept out of the counts below.
+	const remoteProbes = () => probed.filter((a) => a !== LOCAL_ADDRESS)
 
 	check('it binds the discovery port', socket.boundPort === DISCOVERY_PORT, String(socket.boundPort))
 	check('it listens on every interface', DISCOVERY_PORT === 21027)
@@ -206,7 +218,7 @@ console.log('4. the scanner')
 		logs.some((l) => l.includes('media-pc.lan')),
 		JSON.stringify(logs),
 	)
-	check('both hosts were probed', probed.length === 2, JSON.stringify(probed))
+	check('both hosts were probed', remoteProbes().length === 2, JSON.stringify(probed))
 	check(
 		'the find is logged',
 		logs.some((l) => l.includes('192.168.1.5')),
@@ -218,14 +230,14 @@ console.log('4. the scanner')
 	socket.emit('message', packet, { address: '192.168.1.5', port: 21027 })
 	socket.emit('message', packet, { address: '192.168.1.9', port: 21027 })
 	await new Promise((r) => setTimeout(r, 200))
-	check('a known host is not probed again', probed.length === 2, JSON.stringify(probed))
+	check('a known host is not probed again', remoteProbes().length === 2, JSON.stringify(probed))
 	check('an unreachable host is not probed again', probed.filter((a) => a === '192.168.1.9').length === 1)
 
 	// After a settings change, failed hosts deserve another try.
 	scanner.retryUnreachable()
 	socket.emit('message', packet, { address: '192.168.1.9', port: 21027 })
-	await waitFor(() => probed.length >= 3, 'a retry')
-	check('retryUnreachable lets a host be probed again', probed.length === 3, JSON.stringify(probed))
+	await waitFor(() => remoteProbes().length >= 3, 'a retry')
+	check('retryUnreachable lets a host be probed again', remoteProbes().length === 3, JSON.stringify(probed))
 
 	scanner.stop()
 	check('stopping closes the socket', socket.closed === true)
@@ -240,7 +252,7 @@ console.log('5. a host whose name cannot be resolved is still listed')
 	const socket = new FakeSocket()
 	const scanner = new LanScanner({
 		createSocket: () => socket,
-		probe: async () => 'https',
+		probe: async (a) => (a === LOCAL_ADDRESS ? undefined : 'https'),
 		resolveName: async () => undefined,
 		onChange: () => {},
 		log: () => {},
@@ -258,7 +270,7 @@ console.log('5. a host whose name cannot be resolved is still listed')
 	const socket = new FakeSocket()
 	const scanner = new LanScanner({
 		createSocket: () => socket,
-		probe: async () => 'http',
+		probe: async (a) => (a === LOCAL_ADDRESS ? undefined : 'http'),
 		resolveName: async () => {
 			throw new Error('dns exploded')
 		},
@@ -284,6 +296,7 @@ console.log('6. packets that are not Syncthing are ignored')
 	const scanner = new LanScanner({
 		createSocket: () => socket,
 		probe: async (address) => {
+			if (address === LOCAL_ADDRESS) return undefined
 			probed.push(address)
 			return 'http'
 		},
@@ -299,13 +312,66 @@ console.log('6. packets that are not Syncthing are ignored')
 	scanner.stop()
 }
 
-console.log('7. a port that cannot be bound is reported, not crashed on')
+console.log('7. the instance on this machine is searched for, not assumed')
+{
+	const socket = new FakeSocket()
+	const probed = []
+	const scanner = new LanScanner({
+		createSocket: () => socket,
+		probe: async (address) => {
+			probed.push(address)
+			return address === LOCAL_ADDRESS ? 'http' : undefined
+		},
+		ownAddresses: () => ['192.168.20.100'],
+		onChange: () => {},
+		log: () => {},
+	})
+	scanner.start()
+
+	await waitFor(() => scanner.hosts.length >= 1, 'the local instance')
+	check('this machine is probed without any announcement', probed.includes(LOCAL_ADDRESS), JSON.stringify(probed))
+	check('a reachable local instance is listed', scanner.hosts[0]?.address === LOCAL_ADDRESS)
+	check('it is labelled as this machine', scanner.hosts[0]?.hostname === 'this machine')
+
+	// Its own broadcast supplies the device ID that a probe alone cannot give.
+	socket.emit('message', announcement({ id: deviceId }), { address: '192.168.20.100', port: 21027 })
+	await waitFor(() => scanner.hosts[0]?.shortId === shortDeviceId(deviceId), 'the device id')
+	check('its device id comes from its own announcement', scanner.hosts[0]?.shortId === shortDeviceId(deviceId))
+
+	scanner.stop()
+}
+
+{
+	// Bound to a single network address, the interface is not reachable over 127.0.0.1 at all.
+	const socket = new FakeSocket()
+	const scanner = new LanScanner({
+		createSocket: () => socket,
+		probe: async (address) => (address === '192.168.20.100' ? 'http' : undefined),
+		ownAddresses: () => ['192.168.20.100'],
+		onChange: () => {},
+		log: () => {},
+	})
+	scanner.start()
+
+	socket.emit('message', announcement({ id: deviceId }), { address: '192.168.20.100', port: 21027 })
+	await waitFor(() => scanner.hosts.length >= 1, 'the host under its network address')
+
+	check('it is listed under the address that answers', scanner.hosts[0]?.address === '192.168.20.100')
+	check(
+		'localhost is not offered when it does not answer',
+		!scanner.hosts.some((h) => h.address === LOCAL_ADDRESS),
+		JSON.stringify(scanner.hosts),
+	)
+	scanner.stop()
+}
+
+console.log('8. a port that cannot be bound is reported, not crashed on')
 {
 	const socket = new FakeSocket()
 	const logs = []
 	const scanner = new LanScanner({
 		createSocket: () => socket,
-		probe: async () => 'http',
+		probe: async (a) => (a === LOCAL_ADDRESS ? undefined : 'http'),
 		onChange: () => {},
 		log: (level, message) => logs.push(`${level}: ${message}`),
 	})

@@ -9,7 +9,7 @@ machines, add one connection per machine.
 
 | Field                          | Meaning                                                           |
 | ------------------------------ | ----------------------------------------------------------------- |
-| Host                           | Picked from the instances found on the network, or typed in       |
+| Host                           | Empty at first. Pick a found instance, or type an address in      |
 | GUI port                       | Port of the Syncthing web interface, `8384` by default            |
 | Poll interval                  | How often the module refreshes status and variables, in seconds   |
 | API key                        | Taken from the Syncthing GUI under Actions > Settings > General   |
@@ -20,6 +20,11 @@ machines, add one connection per machine.
 | Follow the event stream        | Reacts to changes immediately instead of at the next poll         |
 | Poll folder and device details | Turns the per-folder and per-device data on or off                |
 | Detail interval                | How often that per-folder and per-device data is refreshed        |
+
+A new connection starts with no host chosen, and contacts nothing at all until you pick one. That
+includes the machine Companion runs on: 127.0.0.1 is offered in the list, but never chosen for
+you, because a connection to the local instance is rarely what you want on a network with several
+machines.
 
 The API key is stored as a secret, separately from the rest of the configuration.
 
@@ -41,8 +46,8 @@ block of its device ID, which is the same short form Syncthing shows.
 Two things to expect. Announcements arrive every 30 to 60 seconds, so the list can be empty for a
 minute after opening the page; reopen it and the entries appear. And the instance on the Companion
 machine itself announces its network address, where its web interface is usually not bound, so it
-may not be listed. The host list always offers 127.0.0.1 for that case, which is the usual setup
-on Windows and macOS.
+may not be listed. The host list offers 127.0.0.1 for that case, which is the usual setup on
+Windows and macOS, but it is never preselected.
 
 Found instances are also written to the connection log as they appear.
 

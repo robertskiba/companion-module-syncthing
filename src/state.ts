@@ -106,25 +106,6 @@ export function sanitizeVarSegment(input: string): string {
 }
 
 /**
- * Assigns a unique variable name segment to each entry.
- * Two folders or devices can sanitize down to the same string, so later duplicates get a suffix.
- */
-export function assignUniquePrefixes(names: string[]): string[] {
-	const used = new Set<string>()
-	return names.map((name) => {
-		const base = sanitizeVarSegment(name)
-		let candidate = base
-		let counter = 2
-		while (used.has(candidate)) {
-			candidate = `${base}_${counter}`
-			counter++
-		}
-		used.add(candidate)
-		return candidate
-	})
-}
-
-/**
  * Gives every entry two variable name segments: a stable one derived from an identifier, and a
  * readable one derived from a user-chosen name, lower-cased.
  *

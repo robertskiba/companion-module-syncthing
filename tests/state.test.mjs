@@ -3,7 +3,6 @@ import http from 'node:http'
 const D = '../dist'
 const { SyncthingApi } = await import(`${D}/api.js`)
 const {
-	assignUniquePrefixes,
 	assignPrefixPairs,
 	sanitizeVarSegment,
 	folderCompletion,
@@ -64,14 +63,16 @@ check('leading/trailing stripped', sanitizeVarSegment('--abc--') === 'abc', sani
 check('empty falls back', sanitizeVarSegment('---') === 'unnamed', sanitizeVarSegment('---'))
 check('umlauts collapse', sanitizeVarSegment('Präsentation') === 'Pr_sentation', sanitizeVarSegment('Präsentation'))
 
-console.log('2. assignUniquePrefixes')
-const prefixes = assignUniquePrefixes(['Media PC', 'Media-PC', 'Media_PC', 'Other'])
+console.log('2. assignPrefixPairs de-duplicates colliding names')
+const prefixes = assignPrefixPairs(
+	['Media PC', 'Media-PC', 'Media_PC', 'Other'].map((n) => ({ stable: n, readable: '' })),
+).map((p) => p.varPrefix)
 check(
 	'collisions get suffixes',
 	JSON.stringify(prefixes) === JSON.stringify(['Media_PC', 'Media_PC_2', 'Media_PC_3', 'Other']),
 	JSON.stringify(prefixes),
 )
-check('empty list is fine', assignUniquePrefixes([]).length === 0)
+check('empty list is fine', assignPrefixPairs([]).length === 0)
 
 console.log('3. folderCompletion')
 check('half done', folderCompletion(1000, 500, 5) === 50, String(folderCompletion(1000, 500, 5)))

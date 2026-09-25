@@ -9,7 +9,11 @@ jobs:
 
     if: ${{ !contains(github.repository, 'companion-module-template-') }}
 
+    # Naming any permission sets every unnamed one to none. The check starts by cloning this
+    # repository with the job's token, which needs contents: read as soon as the repository is
+    # private. A public repository clones without it, which is why the template leaves it out.
     permissions:
+      contents: read
       packages: read
 
     uses: bitfocus/actions/.github/workflows/module-checks.yaml@main
